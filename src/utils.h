@@ -8,17 +8,17 @@
 
 namespace rune::utils {
 
-#define rune_assert(expr)                                                                      \
-    do {                                                                                       \
-        if (!(expr)) {                                                                         \
-            rune::Logger::fatal("rune assertion failed at %:%: %", __FILE__, __LINE__, #expr); \
-        }                                                                                      \
+#define rune_assert(core, expr)                                                                      \
+    do {                                                                                             \
+        if (!(expr)) {                                                                               \
+            (core).get_logger().fatal("rune assertion failed at %:%: %", __FILE__, __LINE__, #expr); \
+        }                                                                                            \
     } while (0);
 
-#define rune_debug_assert(expr)                    \
+#define rune_debug_assert(core, expr)              \
     do {                                           \
         if constexpr (!rune::consts::is_release) { \
-            rune_assert(expr);                     \
+            rune_assert(core, expr);               \
         }                                          \
     } while (0);
 

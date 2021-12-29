@@ -39,11 +39,9 @@ constexpr const char* log_level_to_string(LogLevel level) {
     return "unknown";
 }
 
-// TODO(sandy): would be nice to be able to log to file
-
 class Logger {
   public:
-    template <LogLevel level, typename... Args> static void log(const char* format, const Args&... args) {
+    template <LogLevel level, typename... Args> void log(const char* format, const Args&... args) {
         constexpr const char* prefix = log_level_to_string(level);
 
         if constexpr (level >= LogLevel::ERROR) {
@@ -57,33 +55,33 @@ class Logger {
         }
     }
 
-    template <typename... Args> static void verbose(const char* format, const Args&... args) {
+    template <typename... Args> void verbose(const char* format, const Args&... args) {
         log<LogLevel::VERBOSE>(format, args...);
     }
 
-    template <typename... Args> static void debug(const char* format, const Args&... args) {
+    template <typename... Args> void debug(const char* format, const Args&... args) {
         log<LogLevel::DEBUG>(format, args...);
     }
 
-    template <typename... Args> static void info(const char* format, const Args&... args) {
+    template <typename... Args> void info(const char* format, const Args&... args) {
         log<LogLevel::INFO>(format, args...);
     }
 
-    template <typename... Args> static void warn(const char* format, const Args&... args) {
+    template <typename... Args> void warn(const char* format, const Args&... args) {
         log<LogLevel::WARN>(format, args...);
     }
 
-    template <typename... Args> static void error(const char* format, const Args&... args) {
+    template <typename... Args> void error(const char* format, const Args&... args) {
         log<LogLevel::ERROR>(format, args...);
     }
 
-    template <typename... Args> static void fatal(const char* format, const Args&... args) {
+    template <typename... Args> void fatal(const char* format, const Args&... args) {
         log<LogLevel::FATAL>(format, args...);
     }
 
   private:
     template <typename... Args>
-    static void log_generic(std::ostream& stream, const char* channel_name, const char* format, const Args&... args) {
+    void log_generic(std::ostream& stream, const char* channel_name, const char* format, const Args&... args) {
         stream << "[";
 
         std::time_t t = std::time(nullptr);

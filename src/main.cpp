@@ -1,10 +1,10 @@
-#include "logger.h"
+#include "core.h"
 
 int main() {
-    using namespace rune;
+    rune::Core core;
+    // core.add_system();
 
-    Logger::info("operating system: %", consts::os_name);
-    Logger::info("is release build: %", consts::is_release);
+    core.run();
 
     return 0;
 }
