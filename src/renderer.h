@@ -4,7 +4,12 @@
 namespace rune {
 
 class Core;
+
+namespace gfx {
+
 class GraphicsBackend;
+
+}
 
 // graphics frontend
 
@@ -16,7 +21,7 @@ class Renderer {
 
   private:
     Core&            core_;
-    GraphicsBackend& gfx_;
+    gfx::GraphicsBackend& gfx_;
 };
 
 } // namespace rune

@@ -1,10 +1,10 @@
 #ifndef RUNE_GRAPHICS_BACKEND_H
 #define RUNE_GRAPHICS_BACKEND_H
 
+#include "gfx/render_pass.h"
 #include "types.h"
 
 #include <functional>
-#include <spirv_reflect.h>
 #include <stack>
 #include <vulkan/vulkan.h>
 
@@ -14,22 +14,9 @@ namespace rune {
 
 class Core;
 
-struct GraphicsPassDesc {
-    // 0,0 will default to full res
-    VkRect2D render_area = {0, 0};
+}
 
-    // temp shader paths
-
-    const char* vert_shader_path = nullptr;
-    const char* frag_shader_path = nullptr;
-};
-
-// TODO
-struct GraphicsPass {
-    VkRenderPass     render_pass;
-    VkRect2D         render_area;
-    VkPipelineLayout pipeline_layout;
-};
+namespace rune::gfx {
 
 class GraphicsBackend {
   public:
@@ -44,10 +31,15 @@ class GraphicsBackend {
         return get_current_frame().command_buffer_;
     }
 
-    GraphicsPass create_pass(GraphicsPassDesc desc);
-
-    void start_pass(const GraphicsPass& pass);
-    void end_pass();
+    // temp
+    VkRenderPass          create_render_pass();
+    void                  create_framebuffers(VkRenderPass render_pass, VkRect2D render_area);
+    VkFramebuffer         get_framebuffer(VkRenderPass render_pass);
+    VkDescriptorSetLayout create_descriptor_set_layout(const VkDescriptorSetLayoutCreateInfo& info);
+    VkPipelineLayout      create_pipeline_layout(const VkPipelineLayoutCreateInfo& pipeline_layout_info);
+    VkPipeline            create_graphics_pipeline(const std::vector<ShaderInfo>& shaders,
+                                                   VkPipelineLayout               pipeline_layout,
+                                                   VkRenderPass                   render_pass);
 
   private:
     // TODO: config option?
@@ -63,13 +55,6 @@ class GraphicsBackend {
     void choose_physical_device();
     void create_logical_device();
     void create_swapchain();
-
-    struct ShaderData {
-        VkShaderModule    shader_module;
-        std::vector<char> code;
-    };
-
-    ShaderData create_shader_module(const char* shader_path);
 
     PerFrame& get_current_frame() {
         return frames_[current_frame_];
@@ -105,6 +90,6 @@ class GraphicsBackend {
     std::unordered_map<VkRenderPass, std::vector<VkFramebuffer>> framebuffers_;
 };
 
-} // namespace rune
+} // namespace rune::gfx
 
 #endif // RUNE_GRAPHICS_BACKEND_H

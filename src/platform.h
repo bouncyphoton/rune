@@ -1,7 +1,7 @@
 #ifndef RUNE_PLATFORM_H
 #define RUNE_PLATFORM_H
 
-#include "graphics_backend.h"
+#include "gfx/graphics_backend.h"
 
 #include <optional>
 
@@ -18,14 +18,14 @@ class Platform {
 
     void update();
 
-    GraphicsBackend& get_graphics_backend() {
+    gfx::GraphicsBackend& get_graphics_backend() {
         return *graphics_;
     }
 
   private:
     Core&                          core_;
     GLFWwindow*                    window_;
-    std::optional<GraphicsBackend> graphics_;
+    std::optional<gfx::GraphicsBackend> graphics_;
 };
 
 } // namespace rune

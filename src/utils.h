@@ -3,8 +3,10 @@
 
 #include "consts.h"
 
+#include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace rune::utils {
 
@@ -79,6 +81,19 @@ template <typename... Args> static std::string format_str(const char* format, co
     std::stringstream out;
     detail::format_str_process_next(out, format, args...);
     return out.str();
+}
+
+static std::vector<char> load_binary_file(const char* path) {
+    std::vector<char> data;
+
+    if (std::ifstream file = std::ifstream(path, std::ios::ate | std::ios::binary)) {
+        u32 size = (u32)file.tellg();
+        data.resize(size);
+        file.seekg(0);
+        file.read(data.data(), size);
+    }
+
+    return data;
 }
 
 } // namespace rune::utils
