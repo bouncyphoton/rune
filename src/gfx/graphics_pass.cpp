@@ -1,7 +1,10 @@
 #include "graphics_pass.h"
 
+#include "core.h"
 #include "gfx/graphics_backend.h"
 #include "utils.h"
+
+#include <set>
 
 namespace rune::gfx {
 
@@ -33,6 +36,72 @@ void GraphicsPass::run(VkCommandBuffer cmd, const std::function<void(VkCommandBu
     func(cmd);
 
     vkCmdEndRenderPass(cmd);
+}
+
+void GraphicsPass::set_descriptors(VkCommandBuffer cmd, const DescriptorWrites& variable_writes) {
+    struct SetWriteData {
+        VkDescriptorSet                   descriptor_set;
+        std::vector<VkWriteDescriptorSet> writes;
+    };
+
+    // name -> descriptor info
+    const std::unordered_map<std::string, DescriptorInfo>& descriptors = get_descriptors();
+
+    // set index -> descriptor writes
+    std::unordered_map<u32, SetWriteData> set_writes;
+    for (const auto& [variable_name, write_data] : variable_writes.get_write_data()) {
+        auto it = descriptors.find(variable_name);
+        if (it == descriptors.end()) {
+            core_.get_logger().fatal("tried to set descriptor that doesn't exist: '%'", variable_name);
+        }
+
+        if (it->second.type != write_data.descriptor_type) {
+            core_.get_logger().fatal("tried to write incorrect descriptor type: expected '%', got '%'",
+                                     it->second.type,
+                                     write_data.descriptor_type);
+        }
+
+        u32 set_idx = it->second.set;
+
+        // get compatible descriptor set or allocate if necessary
+        VkDescriptorSet set = gfx_.get_descriptor_set(get_descriptor_set_layout(set_idx));
+
+        VkWriteDescriptorSet write = {};
+        write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet               = set;
+        write.dstBinding           = it->second.binding;
+        write.descriptorType       = it->second.type;
+        write.descriptorCount      = 1;
+
+        switch (write_data.write_type) {
+        case DescriptorWrites::Write::WriteDataType::BUFFER:
+            write.pBufferInfo = &write_data.data.buffer_info;
+            break;
+        case DescriptorWrites::Write::WriteDataType::IMAGE:
+            write.pImageInfo = &write_data.data.image_info;
+            break;
+        case DescriptorWrites::Write::WriteDataType::INVALID:
+            core_.get_logger().fatal("invalid write type");
+            break;
+        }
+
+        // TODO: ...
+
+        set_writes[set_idx].descriptor_set = set;
+        set_writes[set_idx].writes.emplace_back(write);
+    }
+
+    for (auto [set_idx, write_data] : set_writes) {
+        gfx_.update_descriptor_sets(write_data.writes);
+        vkCmdBindDescriptorSets(cmd,
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipeline_layout_,
+                                set_idx,
+                                1,
+                                &write_data.descriptor_set,
+                                0,
+                                nullptr);
+    }
 }
 
 } // namespace rune::gfx

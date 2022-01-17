@@ -7,7 +7,9 @@
 
 namespace rune {
 
-Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_graphics_backend()) {}
+Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_graphics_backend()) {
+    // gfx_.load_model();
+}
 
 void Renderer::render() {
     // TODO: use shaderc to compile shader strings for fast iteration and so we're not committing spriv
@@ -19,17 +21,19 @@ void Renderer::render() {
 
     static gfx::GraphicsPass pass(core_, gfx_, pass_desc);
 
+    // TODO: indices
+
     gfx_.begin_frame();
     {
-        // todo: unified buffers
+        // todo: unified buffer management
 
         pass.run(gfx_.get_command_buffer(), [&](VkCommandBuffer cmd) {
             // update unified buffer descriptors
-            // pass.update_descriptors();
+            gfx::DescriptorWrites writes;
+            writes.set_buffer("u_vertices", gfx_.get_unified_vertex_buffer());
+            pass.set_descriptors(cmd, writes);
 
-            // pass.set_descriptors();
-
-            // loop over renderables
+            // TODO: loop over renderables
 
             f32 time = (f32)glfwGetTime();
             pass.set_push_constants(cmd, VK_SHADER_STAGE_VERTEX_BIT, time);

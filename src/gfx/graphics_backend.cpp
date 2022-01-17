@@ -2,11 +2,14 @@
 
 #include "core.h"
 #include "utils.h"
+#include "vertex.h"
 
-#include <fstream>
 #include <GLFW/glfw3.h>
 #include <set>
 #include <spirv_reflect.h>
+
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
 
 #define vk_check(expr) rune_assert(core_, (expr) == VK_SUCCESS)
 
@@ -47,7 +50,17 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     command_pool_create_info.queueFamilyIndex        = graphics_family_index_;
     command_pool_create_info.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     vk_check(vkCreateCommandPool(device_, &command_pool_create_info, nullptr, &command_pool_));
-    cleanup_.emplace([=]() { vkDestroyCommandPool(device_, command_pool_, nullptr); });
+    cleanup_.emplace([=] { vkDestroyCommandPool(device_, command_pool_, nullptr); });
+
+    // create descriptor pool
+    VkDescriptorPoolSize       sizes[]                     = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}};
+    VkDescriptorPoolCreateInfo descriptor_pool_create_info = {};
+    descriptor_pool_create_info.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    descriptor_pool_create_info.maxSets                    = 3; // TODO
+    descriptor_pool_create_info.poolSizeCount              = count_of(sizes);
+    descriptor_pool_create_info.pPoolSizes                 = sizes;
+    vk_check(vkCreateDescriptorPool(device_, &descriptor_pool_create_info, nullptr, &descriptor_pool_));
+    cleanup_.emplace([=] { vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr); });
 
     // create per-frame data
     for (PerFrame& frame : frames_) {
@@ -60,7 +73,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         VkCommandBuffer cmd_buf;
         vk_check(vkAllocateCommandBuffers(device_, &cmd_buf_alloc_info, &cmd_buf));
         frame.command_buffer_ = cmd_buf;
-        cleanup_.emplace([=]() { vkFreeCommandBuffers(device_, command_pool_, 1, &cmd_buf); });
+        cleanup_.emplace([=] { vkFreeCommandBuffers(device_, command_pool_, 1, &cmd_buf); });
 
         VkSemaphoreCreateInfo semaphore_create_info = {};
         semaphore_create_info.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -78,12 +91,31 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         frame.image_available_ = img_available;
         frame.render_finished_ = render_finished;
         frame.in_flight_       = in_flight;
-        cleanup_.emplace([=]() {
+        cleanup_.emplace([=] {
             vkDestroyFence(device_, in_flight, nullptr);
             vkDestroySemaphore(device_, render_finished, nullptr);
             vkDestroySemaphore(device_, img_available, nullptr);
         });
     }
+
+    // vulkan memory allocator
+    VmaAllocatorCreateInfo vma_ci = {};
+    vma_ci.vulkanApiVersion       = app_info.apiVersion;
+    vma_ci.physicalDevice         = physical_device_;
+    vma_ci.device                 = device_;
+    vma_ci.instance               = instance_;
+
+    vk_check(vmaCreateAllocator(&vma_ci, &allocator_));
+    cleanup_.emplace([=] { vmaDestroyAllocator(allocator_); });
+
+    // create unified buffers
+    unified_vertex_buffer_ = create_buffer_gpu(sizeof(Vertex) * MAX_UNIQUE_VERTICES,
+                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                               BufferDestroyPolicy::AUTOMATIC_DESTROY);
+
+    // TODO: remove temp
+    Vertex vertices[] = {Vertex{0.5f, 0.5f, 0, 1, 1}, Vertex{0, -0.5f, 0, 0.5f, 0}, Vertex{-0.5f, 0.5f, 0, 0, 1}};
+    copy_to_buffer(vertices, sizeof(vertices), unified_vertex_buffer_, 0);
 
     // todo: swapchain resizing
 }
@@ -105,12 +137,15 @@ GraphicsBackend::~GraphicsBackend() {
 }
 
 void GraphicsBackend::begin_frame() {
-    // wait for previous frame to finish
+    // wait until current_frame_ finishes from the last time around
     vkWaitForFences(device_, 1, &get_current_frame().in_flight_, VK_TRUE, UINT64_MAX);
     vkResetFences(device_, 1, &get_current_frame().in_flight_);
 
     // commands finished executing, can do things safely
     vk_check(vkResetCommandBuffer(get_current_frame().command_buffer_, 0));
+    for (auto& cache : get_current_frame().descriptor_set_caches_) {
+        cache.second.reset();
+    }
 
     // get next image
     vk_check(vkAcquireNextImageKHR(device_,
@@ -412,6 +447,116 @@ void GraphicsBackend::create_swapchain() {
     }
 }
 
+void GraphicsBackend::one_time_submit(VkQueue queue, const std::function<void(VkCommandBuffer)>& cmd_recording_func) {
+    // todo: command pool for short-lived command buffers ?
+
+    VkCommandBufferAllocateInfo alloc_info = {};
+    alloc_info.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount          = 1;
+    alloc_info.commandPool                 = command_pool_;
+
+    VkCommandBuffer cmd;
+    vk_check(vkAllocateCommandBuffers(device_, &alloc_info, &cmd));
+
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin_info);
+
+    cmd_recording_func(cmd);
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit_info       = {};
+    submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers    = &cmd;
+    vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue);
+
+    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+}
+
+Buffer
+GraphicsBackend::create_buffer_gpu(VkDeviceSize size, VkBufferUsageFlags buffer_usage, BufferDestroyPolicy policy) {
+    VmaAllocationCreateInfo alloc_ci = {};
+    alloc_ci.usage                   = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    VkBufferCreateInfo buffer_ci = {};
+    buffer_ci.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_ci.size               = size;
+    buffer_ci.usage              = buffer_usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_ci.sharingMode        = VK_SHARING_MODE_EXCLUSIVE;
+
+    Buffer buffer;
+    buffer.range = size;
+    vk_check(vmaCreateBuffer(allocator_,
+                             &buffer_ci,
+                             &alloc_ci,
+                             &buffer.buffer,
+                             &buffer.allocation,
+                             &buffer.allocation_info));
+
+    if (policy == BufferDestroyPolicy::AUTOMATIC_DESTROY) {
+        cleanup_.emplace([=] { destroy_buffer(buffer); });
+    }
+
+    return buffer;
+}
+
+void GraphicsBackend::copy_to_buffer(void*         src_data,
+                                     VkDeviceSize  src_size,
+                                     const Buffer& dst_buffer,
+                                     VkDeviceSize  offset) {
+    VkMemoryPropertyFlags mem_flags;
+    vmaGetMemoryTypeProperties(allocator_, dst_buffer.allocation_info.memoryType, &mem_flags);
+    if ((mem_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0) {
+        // we can just map memory
+        void* dst_data;
+        vmaMapMemory(allocator_, dst_buffer.allocation, &dst_data);
+        std::memcpy(static_cast<char*>(dst_data) + offset, src_data, src_size);
+        vmaUnmapMemory(allocator_, dst_buffer.allocation);
+    } else {
+        // we need a staging buffer
+        VmaAllocationCreateInfo alloc_ci = {};
+        alloc_ci.usage                   = VMA_MEMORY_USAGE_CPU_ONLY;
+        alloc_ci.flags                   = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        VkBufferCreateInfo buffer_ci = {};
+        buffer_ci.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buffer_ci.size               = src_size;
+        buffer_ci.usage              = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        buffer_ci.sharingMode        = VK_SHARING_MODE_EXCLUSIVE;
+
+        Buffer staging_buffer;
+        vk_check(vmaCreateBuffer(allocator_,
+                                 &buffer_ci,
+                                 &alloc_ci,
+                                 &staging_buffer.buffer,
+                                 &staging_buffer.allocation,
+                                 &staging_buffer.allocation_info));
+
+        // copy data to staging buffer
+        std::memcpy(staging_buffer.allocation_info.pMappedData, src_data, src_size);
+
+        // copy data from staging buffer to buffer
+        one_time_submit(graphics_queue_, [=](VkCommandBuffer cmd) {
+            VkBufferCopy region = {};
+            region.size         = src_size;
+            region.dstOffset    = offset;
+
+            vkCmdCopyBuffer(cmd, staging_buffer.buffer, dst_buffer.buffer, 1, &region);
+        });
+
+        destroy_buffer(staging_buffer);
+    }
+}
+
+void GraphicsBackend::destroy_buffer(const Buffer& buffer) {
+    vmaDestroyBuffer(allocator_, buffer.buffer, buffer.allocation);
+}
+
 VkRenderPass GraphicsBackend::create_render_pass() {
     VkAttachmentDescription color_attachment = {};
     color_attachment.format                  = swapchain_format_.format;
@@ -473,13 +618,13 @@ VkDescriptorSetLayout GraphicsBackend::create_descriptor_set_layout(const VkDesc
     cleanup_.emplace([=] { vkDestroyDescriptorSetLayout(device_, layout, nullptr); });
     return layout;
 }
-
 VkPipelineLayout GraphicsBackend::create_pipeline_layout(const VkPipelineLayoutCreateInfo& pipeline_layout_info) {
     VkPipelineLayout pipeline_layout;
     vk_check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr, &pipeline_layout));
     cleanup_.emplace([=] { vkDestroyPipelineLayout(device_, pipeline_layout, nullptr); });
     return pipeline_layout;
 }
+
 VkPipeline GraphicsBackend::create_graphics_pipeline(const std::vector<ShaderInfo>& shaders,
                                                      VkPipelineLayout               pipeline_layout,
                                                      VkRenderPass                   render_pass) {
@@ -583,6 +728,32 @@ VkPipeline GraphicsBackend::create_graphics_pipeline(const std::vector<ShaderInf
     }
 
     return pipeline;
+}
+
+VkDescriptorSet GraphicsBackend::get_descriptor_set(VkDescriptorSetLayout layout) {
+    VkDescriptorSet set = VK_NULL_HANDLE;
+
+    DescriptorSetCache& cache = get_current_frame().get_descriptor_set_cache(layout);
+
+    if (cache.empty()) {
+        core_.get_logger().info("allocating new descriptor set");
+
+        VkDescriptorSetAllocateInfo alloc_info = {};
+        alloc_info.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc_info.descriptorPool              = descriptor_pool_;
+        alloc_info.descriptorSetCount          = 1;
+        alloc_info.pSetLayouts                 = &layout;
+
+        vk_check(vkAllocateDescriptorSets(device_, &alloc_info, &set));
+        cache.add_in_use(set);
+    } else {
+        set = cache.get_for_use();
+    }
+
+    return set;
+}
+void GraphicsBackend::update_descriptor_sets(const std::vector<VkWriteDescriptorSet>& writes) {
+    vkUpdateDescriptorSets(device_, writes.size(), writes.data(), 0, nullptr);
 }
 
 } // namespace rune::gfx

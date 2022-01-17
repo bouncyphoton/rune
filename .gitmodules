@@ -4,3 +4,6 @@
 [submodule "external/SPIRV-Reflect"]
 	path = external/SPIRV-Reflect
 	url = https://github.com/bouncyphoton/SPIRV-Reflect
+[submodule "external/VulkanMemoryAllocator"]
+	path = external/VulkanMemoryAllocator
+	url = https://github.com/bouncyphoton/VulkanMemoryAllocator.git

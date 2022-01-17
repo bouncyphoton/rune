@@ -14,6 +14,36 @@ RenderPass::RenderPass(Core& core, GraphicsBackend& gfx, const std::vector<Shade
 
 RenderPass::~RenderPass() {}
 
+void RenderPass::set_push_constants(VkCommandBuffer       cmd,
+                                    VkShaderStageFlagBits shader_stage,
+                                    const void*           data,
+                                    u32                   size,
+                                    u32                   offset) {
+    if constexpr (!consts::is_release) {
+        // validate that we're updating in a push constant range
+        bool valid = false;
+        for (const PushConstantsInfo& info : push_constants_) {
+            if (info.stage != shader_stage) {
+                continue;
+            }
+
+            if (offset + size <= info.size + info.offset) {
+                valid = true;
+                break;
+            }
+        }
+
+        if (!valid) {
+            core_.get_logger().warn("Invalid push constant with size: %, offset: %, shader stage: %",
+                                    size,
+                                    offset,
+                                    shader_stage);
+            return;
+        }
+    }
+    vkCmdPushConstants(cmd, pipeline_layout_, shader_stage, offset, size, data);
+}
+
 void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
     Logger& logger = core_.get_logger();
 
@@ -85,7 +115,9 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
             set_info.bindingCount                    = set->binding_count;
             set_info.pBindings                       = bindings;
 
-            layouts[set_start_idx + i] = gfx_.create_descriptor_set_layout(set_info);
+            VkDescriptorSetLayout layout = gfx_.create_descriptor_set_layout(set_info);
+            layouts[set_start_idx + i] = layout;
+            descriptor_set_layouts_[set->set] = layout;
         }
         set_start_idx += num_sets;
 
@@ -128,36 +160,6 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
     for (SpvReflectShaderModule& module : modules) {
         spvReflectDestroyShaderModule(&module);
     }
-}
-
-void RenderPass::set_push_constants(VkCommandBuffer       cmd,
-                                    VkShaderStageFlagBits shader_stage,
-                                    const void*           data,
-                                    u32                   size,
-                                    u32                   offset) {
-    if constexpr (!consts::is_release) {
-        // validate that we're updating in a push constant range
-        bool valid = false;
-        for (const PushConstantsInfo& info : push_constants_) {
-            if (info.stage != shader_stage) {
-                continue;
-            }
-
-            if (offset + size <= info.size + info.offset) {
-                valid = true;
-                break;
-            }
-        }
-
-        if (!valid) {
-            core_.get_logger().warn("Invalid push constant with size: %, offset: %, shader stage: %",
-                                    size,
-                                    offset,
-                                    shader_stage);
-            return;
-        }
-    }
-    vkCmdPushConstants(cmd, pipeline_layout_, shader_stage, offset, size, data);
 }
 
 } // namespace rune::gfx

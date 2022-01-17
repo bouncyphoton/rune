@@ -30,6 +30,8 @@ class GraphicsPass : public RenderPass {
 
     void run(VkCommandBuffer cmd, const std::function<void(VkCommandBuffer)>& func) override;
 
+    void set_descriptors(VkCommandBuffer cmd, const DescriptorWrites& writes) override;
+
   private:
     GraphicsPassDesc desc_;
     VkPipeline       pipeline_;
