@@ -72,8 +72,8 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
         spvReflectEnumeratePushConstantBlocks(&module, &num_constants, nullptr);
         total_constants += num_constants;
     }
-    VkDescriptorSetLayout layouts[total_sets];
-    VkPushConstantRange   constant_ranges[total_constants];
+    std::vector<VkDescriptorSetLayout> layouts(total_sets);
+    std::vector<VkPushConstantRange>   constant_ranges(total_constants);
 
     u32 set_start_idx       = 0;
     u32 constants_start_idx = 0;
@@ -83,8 +83,8 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
         // descriptor sets
         u32 num_sets;
         spvReflectEnumerateDescriptorSets(&modules[s], &num_sets, nullptr);
-        SpvReflectDescriptorSet* sets[num_sets];
-        spvReflectEnumerateDescriptorSets(&modules[s], &num_sets, sets);
+        std::vector<SpvReflectDescriptorSet*> sets(num_sets);
+        spvReflectEnumerateDescriptorSets(&modules[s], &num_sets, sets.data());
         logger.verbose("- % descriptor set%:", num_sets, num_sets == 1 ? "" : "s");
 
         for (u32 i = 0; i < num_sets; ++i) {
@@ -92,7 +92,7 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
 
             logger.verbose(" - set %:", set->set);
 
-            VkDescriptorSetLayoutBinding bindings[set->binding_count];
+            std::vector<VkDescriptorSetLayoutBinding> bindings(set->binding_count);
             for (u32 j = 0; j < set->binding_count; ++j) {
                 SpvReflectDescriptorBinding* binding = set->bindings[j];
                 logger.verbose("  - binding %: '%'", binding->binding, binding->name);
@@ -113,10 +113,10 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
             VkDescriptorSetLayoutCreateInfo set_info = {};
             set_info.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
             set_info.bindingCount                    = set->binding_count;
-            set_info.pBindings                       = bindings;
+            set_info.pBindings                       = bindings.data();
 
-            VkDescriptorSetLayout layout = gfx_.create_descriptor_set_layout(set_info);
-            layouts[set_start_idx + i] = layout;
+            VkDescriptorSetLayout layout      = gfx_.create_descriptor_set_layout(set_info);
+            layouts[set_start_idx + i]        = layout;
             descriptor_set_layouts_[set->set] = layout;
         }
         set_start_idx += num_sets;
@@ -124,8 +124,8 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
         // push constants
         u32 num_constants;
         spvReflectEnumeratePushConstantBlocks(&modules[s], &num_constants, nullptr);
-        SpvReflectBlockVariable* push_variables[num_constants];
-        spvReflectEnumeratePushConstantBlocks(&modules[s], &num_constants, push_variables);
+        std::vector<SpvReflectBlockVariable*> push_variables(num_constants);
+        spvReflectEnumeratePushConstantBlocks(&modules[s], &num_constants, push_variables.data());
         logger.verbose("- % push constant%:", num_constants, num_constants == 1 ? "" : "s");
 
         for (u32 i = 0; i < num_constants; ++i) {
@@ -150,10 +150,10 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
     // create VkPipelineLayout
     VkPipelineLayoutCreateInfo pipeline_layout_info = {};
     pipeline_layout_info.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount             = count_of(layouts);
-    pipeline_layout_info.pSetLayouts                = layouts;
-    pipeline_layout_info.pushConstantRangeCount     = count_of(constant_ranges);
-    pipeline_layout_info.pPushConstantRanges        = constant_ranges;
+    pipeline_layout_info.setLayoutCount             = layouts.size();
+    pipeline_layout_info.pSetLayouts                = layouts.data();
+    pipeline_layout_info.pushConstantRangeCount     = constant_ranges.size();
+    pipeline_layout_info.pPushConstantRanges        = constant_ranges.data();
 
     pipeline_layout_ = gfx_.create_pipeline_layout(pipeline_layout_info);
 

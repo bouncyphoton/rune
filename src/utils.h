@@ -24,8 +24,6 @@ namespace rune::utils {
         }                                          \
     } while (0);
 
-#define count_of(arr) (sizeof(arr) / sizeof(*(arr)))
-
 namespace detail {
 
 static void format_str_process_next(std::ostream& stream, const char* format) {

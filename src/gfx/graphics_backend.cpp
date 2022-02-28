@@ -29,7 +29,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     VkInstanceCreateInfo instance_info    = {};
     instance_info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pApplicationInfo        = &app_info;
-    instance_info.enabledLayerCount       = count_of(g_instance_layers);
+    instance_info.enabledLayerCount       = std::size(g_instance_layers);
     instance_info.ppEnabledLayerNames     = g_instance_layers;
     instance_info.ppEnabledExtensionNames = glfwGetRequiredInstanceExtensions(&instance_info.enabledExtensionCount);
 
@@ -57,7 +57,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = {};
     descriptor_pool_create_info.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptor_pool_create_info.maxSets                    = 3; // TODO
-    descriptor_pool_create_info.poolSizeCount              = count_of(sizes);
+    descriptor_pool_create_info.poolSizeCount              = std::size(sizes);
     descriptor_pool_create_info.pPoolSizes                 = sizes;
     vk_check(vkCreateDescriptorPool(device_, &descriptor_pool_create_info, nullptr, &descriptor_pool_));
     cleanup_.emplace([=] { vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr); });
@@ -195,8 +195,8 @@ void GraphicsBackend::choose_physical_device() {
     u32 num_physical_devices;
     vk_check(vkEnumeratePhysicalDevices(instance_, &num_physical_devices, nullptr));
     rune_assert(core_, num_physical_devices > 0);
-    VkPhysicalDevice physical_devices[num_physical_devices];
-    vk_check(vkEnumeratePhysicalDevices(instance_, &num_physical_devices, physical_devices));
+    std::vector<VkPhysicalDevice> physical_devices(num_physical_devices);
+    vk_check(vkEnumeratePhysicalDevices(instance_, &num_physical_devices, physical_devices.data()));
 
     core_.get_logger().info("% physical device%", num_physical_devices, num_physical_devices == 1 ? "" : "s");
 
@@ -209,8 +209,11 @@ void GraphicsBackend::choose_physical_device() {
 
         u32 num_device_extensions;
         vkEnumerateDeviceExtensionProperties(possible_device, nullptr, &num_device_extensions, nullptr);
-        VkExtensionProperties device_extensions[num_device_extensions];
-        vkEnumerateDeviceExtensionProperties(possible_device, nullptr, &num_device_extensions, device_extensions);
+        std::vector<VkExtensionProperties> device_extensions(num_device_extensions);
+        vkEnumerateDeviceExtensionProperties(possible_device,
+                                             nullptr,
+                                             &num_device_extensions,
+                                             device_extensions.data());
 
         // make sure that all required extensions are present
         bool usable = true;
@@ -248,8 +251,8 @@ void GraphicsBackend::choose_physical_device() {
 
         u32 num_queue_families;
         vkGetPhysicalDeviceQueueFamilyProperties(possible_device, &num_queue_families, nullptr);
-        VkQueueFamilyProperties queue_families[num_queue_families];
-        vkGetPhysicalDeviceQueueFamilyProperties(possible_device, &num_queue_families, queue_families);
+        std::vector<VkQueueFamilyProperties> queue_families(num_queue_families);
+        vkGetPhysicalDeviceQueueFamilyProperties(possible_device, &num_queue_families, queue_families.data());
 
         // possible queue family indices
         std::optional<u32> possible_graphics;
@@ -296,9 +299,9 @@ void GraphicsBackend::choose_physical_device() {
 void GraphicsBackend::create_logical_device() {
     std::set<unsigned> unique_indices = {graphics_family_index_, compute_family_index_, present_family_index_};
 
-    float                   queue_priority = 1.0f;
-    VkDeviceQueueCreateInfo queue_infos[unique_indices.size()];
-    unsigned                num_queue_infos = 0;
+    float                                queue_priority = 1.0f;
+    std::vector<VkDeviceQueueCreateInfo> queue_infos(unique_indices.size());
+    unsigned                             num_queue_infos = 0;
     for (unsigned index : unique_indices) {
         VkDeviceQueueCreateInfo queue_info = {};
         queue_info.sType                   = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
@@ -311,10 +314,10 @@ void GraphicsBackend::create_logical_device() {
 
     VkDeviceCreateInfo device_info      = {};
     device_info.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_info.pQueueCreateInfos       = queue_infos;
+    device_info.pQueueCreateInfos       = queue_infos.data();
     device_info.queueCreateInfoCount    = num_queue_infos;
     device_info.pEnabledFeatures        = &g_required_device_features;
-    device_info.enabledExtensionCount   = count_of(g_required_device_extensions);
+    device_info.enabledExtensionCount   = std::size(g_required_device_extensions);
     device_info.ppEnabledExtensionNames = g_required_device_extensions;
 
     vk_check(vkCreateDevice(physical_device_, &device_info, nullptr, &device_));
@@ -339,8 +342,8 @@ void GraphicsBackend::create_swapchain() {
     swapchain_extent_ = capabilities.currentExtent;
     if (swapchain_extent_.width == UINT32_MAX && swapchain_extent_.height == UINT32_MAX) {
         swapchain_extent_.width  = std::clamp(core_.get_config().get_window_width(),
-                                             capabilities.minImageExtent.width,
-                                             capabilities.maxImageExtent.width);
+                                              capabilities.minImageExtent.width,
+                                              capabilities.maxImageExtent.width);
         swapchain_extent_.height = std::clamp(core_.get_config().get_window_height(),
                                               capabilities.minImageExtent.height,
                                               capabilities.maxImageExtent.height);
@@ -359,8 +362,8 @@ void GraphicsBackend::create_swapchain() {
     // get format
     u32 num_formats;
     vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_, &num_formats, nullptr);
-    VkSurfaceFormatKHR formats[num_formats];
-    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_, &num_formats, formats);
+    std::vector<VkSurfaceFormatKHR> formats(num_formats);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_, &num_formats, formats.data());
     rune_assert(core_, num_formats > 0);
 
     VkSurfaceFormatKHR surface_format = formats[0];
@@ -376,8 +379,8 @@ void GraphicsBackend::create_swapchain() {
     // get present mode
     u32 num_present_modes;
     vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device_, surface_, &num_present_modes, nullptr);
-    VkPresentModeKHR present_modes[num_present_modes];
-    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device_, surface_, &num_present_modes, present_modes);
+    std::vector<VkPresentModeKHR> present_modes(num_present_modes);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device_, surface_, &num_present_modes, present_modes.data());
 
     // FIFO always supported
     VkPresentModeKHR present_mode = VK_PRESENT_MODE_FIFO_KHR;
@@ -399,7 +402,7 @@ void GraphicsBackend::create_swapchain() {
         p_queue_families   = nullptr;
     } else {
         image_sharing      = VK_SHARING_MODE_CONCURRENT;
-        num_queue_families = count_of(queue_families);
+        num_queue_families = std::size(queue_families);
         p_queue_families   = queue_families;
     }
 
