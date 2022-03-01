@@ -8,11 +8,9 @@
 namespace rune::gfx {
 
 RenderPass::RenderPass(Core& core, GraphicsBackend& gfx, const std::vector<ShaderInfo>& shaders)
-    : core_(core), gfx_(gfx) {
+    : core_(core), gfx_(gfx), pipeline_layout_(VK_NULL_HANDLE) {
     process_shaders(shaders);
 }
-
-RenderPass::~RenderPass() {}
 
 void RenderPass::set_push_constants(VkCommandBuffer       cmd,
                                     VkShaderStageFlagBits shader_stage,

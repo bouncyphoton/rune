@@ -27,8 +27,13 @@ class GraphicsBackend {
     void begin_frame();
     void end_frame();
 
-    // get the command buffer for the current frame
+    /**
+     * Get the command buffer for the current frame
+     * @return Current frame's command buffer
+     */
     VkCommandBuffer get_command_buffer() {
+        // TODO: multithreading?
+
         return get_current_frame().command_buffer_;
     }
 
@@ -46,10 +51,20 @@ class GraphicsBackend {
                                                    VkPipelineLayout               pipeline_layout,
                                                    VkRenderPass                   render_pass);
 
-    // descriptor sets are not dynamic, use for per-frame things
-
+    /**
+     * Get a descriptor set with the given layout, if none are available, allocate a new one
+     * @note Descriptor sets are not dynamic, it's recommended that you use them for per-frame things
+     * @param layout The layout the descriptor set should match
+     * @return The descriptor set
+     */
     VkDescriptorSet get_descriptor_set(VkDescriptorSetLayout layout);
-    void            update_descriptor_sets(const std::vector<VkWriteDescriptorSet>& writes);
+
+    /**
+     * Update descriptor sets with a vector of writes.
+     * Just a simple wrapper around vkUpdateDescriptorSets
+     * @param writes A vector of VkWriteDescriptorSet
+     */
+    void update_descriptor_sets(const std::vector<VkWriteDescriptorSet>& writes);
 
   private:
     // TODO: config option?
