@@ -1,6 +1,7 @@
 #ifndef RUNE_RENDERER_H
 #define RUNE_RENDERER_H
 
+#include "gfx/camera.h"
 #include <glm/glm.hpp>
 #include <vector>
 
@@ -31,6 +32,14 @@ class Renderer {
     void add_to_frame(const RenderObject& robj);
 
     /**
+     * Set the camera for the next render
+     * @param camera Camera
+     */
+    void set_camera(const Camera& camera) {
+        camera_ = camera;
+    }
+
+    /**
      * Render a frame with all the render objects added since the last call to render
      */
     void render();
@@ -41,6 +50,8 @@ class Renderer {
 
     Core&                 core_;
     gfx::GraphicsBackend& gfx_;
+
+    Camera camera_;
 
     // temporary unordered objects to render
     std::vector<RenderObject> render_objects_;

@@ -36,6 +36,9 @@ void Renderer::render() {
             writes.set_buffer("u_object_data", gfx_.get_object_data_buffer());
             pass.set_descriptors(cmd, writes);
 
+            glm::mat4 vp = camera_.get_view_projection_matrix();
+            pass.set_push_constants(cmd, VK_SHADER_STAGE_VERTEX_BIT, vp);
+
             // draw all
             vkCmdDraw(cmd, 3, render_objects_.size(), 0, 0);
         });

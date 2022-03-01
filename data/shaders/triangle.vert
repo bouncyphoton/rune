@@ -22,6 +22,11 @@ layout (std430, set = 0, binding = 1) readonly buffer ObjectDataBuffer {
     ObjectData data[];
 } u_object_data;
 
+layout (push_constant) uniform PushConstants
+{
+    mat4 vp;
+} u_push;
+
 Vertex get_vertex(uint id) {
     Vertex v;
     v.position.x = u_vertices.data[id * 5 + 0];
@@ -38,7 +43,7 @@ void main() {
     Vertex v = get_vertex(gl_VertexIndex);
     ObjectData o = u_object_data.data[object_id];
 
-    vec4 position = o.model_matrix * vec4(v.position, 1);
+    vec4 position = u_push.vp * o.model_matrix * vec4(v.position, 1);
     VS_OUT.uv = v.uv;
     VS_OUT.object_id = object_id;
 
