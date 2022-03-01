@@ -195,6 +195,15 @@ void GraphicsBackend::end_frame() {
     current_frame_ = (current_frame_ + 1) % NUM_FRAMES_IN_FLIGHT;
 }
 
+void GraphicsBackend::update_object_data(const ObjectData* data, u32 num_objects) {
+    if (num_objects > MAX_OBJECTS) {
+        core_.get_logger().warn("Tried to render % objects, maximum allowed is %", num_objects, MAX_OBJECTS);
+        num_objects = MAX_OBJECTS;
+    }
+
+    copy_to_buffer((void*)data, num_objects * sizeof(ObjectData), get_object_data_buffer(), 0);
+}
+
 void GraphicsBackend::choose_physical_device() {
     // get physical devices
     u32 num_physical_devices;

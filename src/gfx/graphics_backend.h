@@ -61,13 +61,7 @@ class GraphicsBackend {
         update_object_data(data.data(), data.size());
     }
 
-    void update_object_data(const ObjectData* data, u32 num_objects) {
-        if (num_objects > MAX_OBJECTS) {
-            num_objects = MAX_OBJECTS;
-        }
-
-        copy_to_buffer((void*)data, num_objects * sizeof(ObjectData), get_object_data_buffer(), 0);
-    }
+    void update_object_data(const ObjectData* data, u32 num_objects);
 
     // temp
     VkRenderPass          create_render_pass();
