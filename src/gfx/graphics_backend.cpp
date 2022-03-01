@@ -11,7 +11,7 @@
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
-#define vk_check(expr) rune_assert(core_, (expr) == VK_SUCCESS)
+#define vk_check(expr) rune_assert_eq(core_, (expr), VK_SUCCESS)
 
 namespace rune::gfx {
 
@@ -44,6 +44,15 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     create_logical_device();
     create_swapchain();
 
+    // vulkan memory allocator
+    VmaAllocatorCreateInfo vma_ci = {};
+    vma_ci.vulkanApiVersion       = app_info.apiVersion;
+    vma_ci.physicalDevice         = physical_device_;
+    vma_ci.device                 = device_;
+    vma_ci.instance               = instance_;
+    vk_check(vmaCreateAllocator(&vma_ci, &allocator_));
+    cleanup_.emplace([=] { vmaDestroyAllocator(allocator_); });
+
     // create command pool, single threaded rendering for now
     VkCommandPoolCreateInfo command_pool_create_info = {};
     command_pool_create_info.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -53,10 +62,10 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     cleanup_.emplace([=] { vkDestroyCommandPool(device_, command_pool_, nullptr); });
 
     // create descriptor pool
-    VkDescriptorPoolSize       sizes[]                     = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3}};
+    VkDescriptorPoolSize       sizes[]                     = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}};
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = {};
     descriptor_pool_create_info.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    descriptor_pool_create_info.maxSets                    = 3; // TODO
+    descriptor_pool_create_info.maxSets                    = 4; // TODO
     descriptor_pool_create_info.poolSizeCount              = std::size(sizes);
     descriptor_pool_create_info.pPoolSizes                 = sizes;
     vk_check(vkCreateDescriptorPool(device_, &descriptor_pool_create_info, nullptr, &descriptor_pool_));
@@ -74,6 +83,12 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         vk_check(vkAllocateCommandBuffers(device_, &cmd_buf_alloc_info, &cmd_buf));
         frame.command_buffer_ = cmd_buf;
         cleanup_.emplace([=] { vkFreeCommandBuffers(device_, command_pool_, 1, &cmd_buf); });
+
+        // TODO: experiment with different memory types
+        frame.object_data_ = create_buffer_gpu(sizeof(ObjectData) * MAX_OBJECTS,
+                                               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                                               BufferDestroyPolicy::AUTOMATIC_DESTROY);
+        // frame.draw_data_ = create_buffer_gpu();
 
         VkSemaphoreCreateInfo semaphore_create_info = {};
         semaphore_create_info.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -97,16 +112,6 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
             vkDestroySemaphore(device_, img_available, nullptr);
         });
     }
-
-    // vulkan memory allocator
-    VmaAllocatorCreateInfo vma_ci = {};
-    vma_ci.vulkanApiVersion       = app_info.apiVersion;
-    vma_ci.physicalDevice         = physical_device_;
-    vma_ci.device                 = device_;
-    vma_ci.instance               = instance_;
-
-    vk_check(vmaCreateAllocator(&vma_ci, &allocator_));
-    cleanup_.emplace([=] { vmaDestroyAllocator(allocator_); });
 
     // create unified buffers
     unified_vertex_buffer_ = create_buffer_gpu(sizeof(Vertex) * MAX_UNIQUE_VERTICES,
@@ -755,6 +760,7 @@ VkDescriptorSet GraphicsBackend::get_descriptor_set(VkDescriptorSetLayout layout
 
     return set;
 }
+
 void GraphicsBackend::update_descriptor_sets(const std::vector<VkWriteDescriptorSet>& writes) {
     vkUpdateDescriptorSets(device_, writes.size(), writes.data(), 0, nullptr);
 }

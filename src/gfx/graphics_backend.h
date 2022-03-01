@@ -2,6 +2,7 @@
 #define RUNE_GRAPHICS_BACKEND_H
 
 #include "gfx/render_pass.h"
+#include "math/matrix.h"
 #include "types.h"
 
 #include <functional>
@@ -19,12 +20,23 @@ class Core;
 
 namespace rune::gfx {
 
+struct ObjectData {
+    Mat4x4f model_matrix;
+};
+
 class GraphicsBackend {
   public:
     explicit GraphicsBackend(Core& core, GLFWwindow* window);
     ~GraphicsBackend();
 
+    /**
+     * Waits for frame from last time around to be ready, gets next image, starts command buffer
+     */
     void begin_frame();
+
+    /**
+     * Submits command buffer, queues for presentation, increments current frame
+     */
     void end_frame();
 
     /**
@@ -39,6 +51,22 @@ class GraphicsBackend {
 
     Buffer get_unified_vertex_buffer() {
         return unified_vertex_buffer_;
+    }
+
+    Buffer get_object_data_buffer() {
+        return get_current_frame().object_data_;
+    }
+
+    void update_object_data(const std::vector<ObjectData>& data) {
+        update_object_data(data.data(), data.size());
+    }
+
+    void update_object_data(const ObjectData* data, u32 num_objects) {
+        if (num_objects > MAX_OBJECTS) {
+            num_objects = MAX_OBJECTS;
+        }
+
+        copy_to_buffer((void*)data, num_objects * sizeof(ObjectData), get_object_data_buffer(), 0);
     }
 
     // temp
@@ -70,6 +98,7 @@ class GraphicsBackend {
     // TODO: config option?
     static constexpr u32 NUM_FRAMES_IN_FLIGHT = 2;
     static constexpr u32 MAX_UNIQUE_VERTICES  = 1000;
+    static constexpr u32 MAX_OBJECTS          = 1000;
 
     struct DescriptorSetCache {
         [[nodiscard]] bool empty() const {
@@ -108,6 +137,7 @@ class GraphicsBackend {
         VkSemaphore     image_available_;
         VkSemaphore     render_finished_;
         VkFence         in_flight_;
+        Buffer          object_data_;
 
         std::unordered_map<VkDescriptorSetLayout, DescriptorSetCache> descriptor_set_caches_;
 

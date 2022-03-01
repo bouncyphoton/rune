@@ -63,8 +63,12 @@ void GraphicsPass::set_descriptors(VkCommandBuffer cmd, const DescriptorWrites& 
 
         u32 set_idx = it->second.set;
 
-        // get compatible descriptor set or allocate if necessary
-        VkDescriptorSet set = gfx_.get_descriptor_set(get_descriptor_set_layout(set_idx));
+        // see if we've written something to this set yet in this batch
+        VkDescriptorSet set = set_writes[set_idx].descriptor_set;
+        if (set == VK_NULL_HANDLE) {
+            // if this is the first time we're seeing this set, get or allocate a new descriptor set
+            set = gfx_.get_descriptor_set(get_descriptor_set_layout(set_idx));
+        }
 
         VkWriteDescriptorSet write = {};
         write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

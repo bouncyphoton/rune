@@ -15,14 +15,29 @@ namespace rune::utils {
         if (!(expr)) {                                                                               \
             (core).get_logger().fatal("rune assertion failed at %:%: %", __FILE__, __LINE__, #expr); \
         }                                                                                            \
-    } while (0);
+    } while (0)
+
+#define rune_assert_eq(core, lhs, rhs)                                                        \
+    do {                                                                                      \
+        auto lhs_eval = lhs;                                                                  \
+        auto rhs_eval = rhs;                                                                  \
+        if ((lhs_eval) != (rhs_eval)) {                                                       \
+            (core).get_logger().fatal("rune assertion failed at %:%: % == %\nlhs: %\nrhs: %", \
+                                      __FILE__,                                               \
+                                      __LINE__,                                               \
+                                      #lhs,                                                   \
+                                      #rhs,                                                   \
+                                      lhs_eval,                                               \
+                                      rhs_eval);                                              \
+        }                                                                                     \
+    } while (0)
 
 #define rune_debug_assert(core, expr)              \
     do {                                           \
         if constexpr (!rune::consts::is_release) { \
             rune_assert(core, expr);               \
         }                                          \
-    } while (0);
+    } while (0)
 
 namespace detail {
 

@@ -5,18 +5,22 @@ struct Vertex {
     vec2 uv;
 };
 
+struct ObjectData {
+    mat4 model_matrix;
+};
+
 layout (location = 0) out VertexData {
     vec2 uv;
+    float object_id;
 } VS_OUT;
 
 layout (std430, set = 0, binding = 0) readonly buffer VertexBuffer {
     float data[];
 } u_vertices;
 
-layout (push_constant) uniform PerDrawConstants
-{
-    float time;
-} u_push;
+layout (std430, set = 0, binding = 1) readonly buffer ObjectDataBuffer {
+    ObjectData data[];
+} u_object_data;
 
 Vertex get_vertex(uint id) {
     Vertex v;
@@ -29,30 +33,14 @@ Vertex get_vertex(uint id) {
 }
 
 void main() {
+    uint object_id = gl_InstanceIndex;
+
     Vertex v = get_vertex(gl_VertexIndex);
+    ObjectData o = u_object_data.data[object_id];
 
-    vec3 position = v.position;
+    vec4 position = o.model_matrix * vec4(v.position, 1);
     VS_OUT.uv = v.uv;
+    VS_OUT.object_id = object_id;
 
-    position.y += sin(u_push.time + VS_OUT.uv.x) * 0.1;
-
-    gl_Position = vec4(position, 1);
+    gl_Position = position;
 }
-
-/*
-void main() {
-    const vec2 uvs[3] = vec2[3](
-        vec2(1, 1),
-        vec2(0.5, 0),
-        vec2(0, 1)
-    );
-
-    VS_OUT.uv = uvs[gl_VertexIndex];
-
-    vec2 position = VS_OUT.uv * 2.0 - 1.0;
-    position *= 0.5;
-    position.y += sin(u_push.time + VS_OUT.uv.x) * 0.1;
-
-    gl_Position = vec4(position, 0.0f, 1.0f);
-}
-*/
