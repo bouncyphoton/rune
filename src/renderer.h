@@ -1,8 +1,7 @@
 #ifndef RUNE_RENDERER_H
 #define RUNE_RENDERER_H
 
-#include "math/matrix.h"
-
+#include <glm/glm.hpp>
 #include <vector>
 
 namespace rune {
@@ -16,7 +15,7 @@ class GraphicsBackend;
 }
 
 struct RenderObject {
-    Mat4x4f model_matrix;
+    glm::mat4 model_matrix;
 };
 
 // graphics frontend

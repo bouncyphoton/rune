@@ -1,7 +1,8 @@
 #include "core.h"
-#include "math/constants.h"
 
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
 
 namespace rune {
 
@@ -27,13 +28,13 @@ void Core::run() {
             */
 
             if (i == 0) {
-                obj.model_matrix = Mat4x4f(1);
+                obj.model_matrix = glm::mat4(1);
             } else {
-                const f32 t         = (0.25f * time - float(i) / float(num_meshes - 1)) * math::TWO_PI;
+                const f32 t         = (0.25f * time - float(i) / float(num_meshes - 1)) * glm::two_pi<f32>();
                 const f32 distance  = 0.75f;
                 const f32 scale     = 0.25f;
-                obj.model_matrix    = Mat4x4f(scale);
-                obj.model_matrix[3] = Vec4f(distance * std::sin(t), distance * std::cos(t), 0, 1);
+                obj.model_matrix    = glm::mat4(scale);
+                obj.model_matrix[3] = glm::vec4(distance * std::sin(t), distance * std::cos(t), 0, 1);
             }
 
             renderer_.add_to_frame(obj);

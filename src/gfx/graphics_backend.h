@@ -2,10 +2,10 @@
 #define RUNE_GRAPHICS_BACKEND_H
 
 #include "gfx/render_pass.h"
-#include "math/matrix.h"
 #include "types.h"
 
 #include <functional>
+#include <glm/glm.hpp>
 #include <stack>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -21,7 +21,7 @@ class Core;
 namespace rune::gfx {
 
 struct ObjectData {
-    Mat4x4f model_matrix;
+    glm::mat4 model_matrix;
 };
 
 class GraphicsBackend {
