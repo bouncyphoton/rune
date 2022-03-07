@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.19)
 project(rune)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 #file(GLOB_RECURSE RUNE_SRCS CONFIGURE_DEPENDS src/*.cpp src/*.c)
 #add_executable(rune ${RUNE_SRCS})

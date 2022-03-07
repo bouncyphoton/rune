@@ -2,7 +2,6 @@
 
 #include "core.h"
 #include "utils.h"
-#include "vertex.h"
 
 #include <GLFW/glfw3.h>
 #include <set>
@@ -15,9 +14,16 @@
 
 namespace rune::gfx {
 
-constexpr const char*              g_instance_layers[]            = {"VK_LAYER_KHRONOS_validation"};
-constexpr const char*              g_required_device_extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-constexpr VkPhysicalDeviceFeatures g_required_device_features     = {};
+constexpr const char*              g_instance_layers[]              = {"VK_LAYER_KHRONOS_validation"};
+constexpr const char*              g_required_device_extensions[]   = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+constexpr VkPhysicalDeviceFeatures g_possible_device_feature_sets[] = {
+    // preferred/optimal feature set
+    VkPhysicalDeviceFeatures{
+        .multiDrawIndirect         = VK_TRUE,
+        .drawIndirectFirstInstance = VK_TRUE,
+    },
+    // acceptable feature set
+    VkPhysicalDeviceFeatures{.drawIndirectFirstInstance = VK_TRUE}};
 
 GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     // create instance
@@ -197,7 +203,7 @@ void GraphicsBackend::end_frame() {
 
 void GraphicsBackend::update_object_data(const ObjectData* data, u32 num_objects) {
     if (num_objects > MAX_OBJECTS) {
-        core_.get_logger().warn("Tried to render % objects, maximum allowed is %", num_objects, MAX_OBJECTS);
+        core_.get_logger().warn("tried to render % objects, maximum allowed is %", num_objects, MAX_OBJECTS);
         num_objects = MAX_OBJECTS;
     }
 
@@ -207,7 +213,7 @@ void GraphicsBackend::update_object_data(const ObjectData* data, u32 num_objects
 Mesh GraphicsBackend::load_mesh(const Vertex* data, u32 num_vertices) {
     // Make sure we have room
     if (num_vertices_in_buffer_ + num_vertices > MAX_UNIQUE_VERTICES) {
-        core_.get_logger().warn("Could not load mesh with % vertices. Current: %, max: %",
+        core_.get_logger().warn("could not load mesh with % vertices. current: %, max: %",
                                 num_vertices,
                                 num_vertices_in_buffer_,
                                 MAX_UNIQUE_VERTICES);
@@ -229,12 +235,12 @@ BatchGroup GraphicsBackend::add_batches(const std::vector<gfx::MeshBatch>& batch
     BatchGroup batch_group;
 
     if (batches.empty()) {
-        core_.get_logger().warn("Tried to add 0 batches");
+        core_.get_logger().warn("tried to add 0 batches");
         return batch_group;
     }
 
     if (get_current_frame().num_draws_ + batches.size() > MAX_DRAWS) {
-        core_.get_logger().warn("Could not add batch group with % draws. Current draws: %, max draws: %",
+        core_.get_logger().warn("could not add batch group with % draws. current draws: %, max draws: %",
                                 batches.size(),
                                 get_current_frame().num_draws_,
                                 MAX_DRAWS);
@@ -265,11 +271,7 @@ BatchGroup GraphicsBackend::add_batches(const std::vector<gfx::MeshBatch>& batch
 }
 
 void GraphicsBackend::draw_batch_group(VkCommandBuffer cmd, const BatchGroup& group) {
-    bool multiDrawIndirectEnabled = false;
-
-    if (multiDrawIndirectEnabled) {
-        // TODO: try multi draw indirect
-
+    if (device_features_.multiDrawIndirect) {
         vkCmdDrawIndirect(cmd,
                           get_current_frame().draw_data_.buffer,
                           group.first_batch * sizeof(VkDrawIndirectCommand),
@@ -408,16 +410,32 @@ void GraphicsBackend::create_logical_device() {
         queue_infos[num_queue_infos++] = queue_info;
     }
 
-    VkDeviceCreateInfo device_info      = {};
-    device_info.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_info.pQueueCreateInfos       = queue_infos.data();
-    device_info.queueCreateInfoCount    = num_queue_infos;
-    device_info.pEnabledFeatures        = &g_required_device_features;
-    device_info.enabledExtensionCount   = std::size(g_required_device_extensions);
-    device_info.ppEnabledExtensionNames = g_required_device_extensions;
+    // Try to make device while going through supported feature sets from most optimal to least optimal
+    for (const VkPhysicalDeviceFeatures& feature_set : g_possible_device_feature_sets) {
+        VkDeviceCreateInfo device_info      = {};
+        device_info.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        device_info.pQueueCreateInfos       = queue_infos.data();
+        device_info.queueCreateInfoCount    = num_queue_infos;
+        device_info.pEnabledFeatures        = &feature_set;
+        device_info.enabledExtensionCount   = std::size(g_required_device_extensions);
+        device_info.ppEnabledExtensionNames = g_required_device_extensions;
 
-    vk_check(vkCreateDevice(physical_device_, &device_info, nullptr, &device_));
-    cleanup_.emplace([=]() { vkDestroyDevice(device_, nullptr); });
+        VkResult create_device_result = vkCreateDevice(physical_device_, &device_info, nullptr, &device_);
+        if (create_device_result == VK_ERROR_FEATURE_NOT_PRESENT) {
+            core_.get_logger().info("feature(s) not present, trying next best feature set");
+            continue;
+        } else {
+            vk_check(create_device_result);
+            device_features_ = feature_set;
+            cleanup_.emplace([=]() { vkDestroyDevice(device_, nullptr); });
+            break;
+        }
+    }
+
+    if (device_ == VK_NULL_HANDLE) {
+        // TODO: list missing features?
+        core_.get_logger().fatal("could not create device: missing required features");
+    }
 
     vkGetDeviceQueue(device_, graphics_family_index_, 0, &graphics_queue_);
     vkGetDeviceQueue(device_, compute_family_index_, 0, &compute_queue_);

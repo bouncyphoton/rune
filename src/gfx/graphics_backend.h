@@ -221,16 +221,17 @@ class GraphicsBackend {
     Core&                             core_;
     std::stack<std::function<void()>> cleanup_;
 
-    VkInstance       instance_              = VK_NULL_HANDLE;
-    VkSurfaceKHR     surface_               = VK_NULL_HANDLE;
-    VkPhysicalDevice physical_device_       = VK_NULL_HANDLE;
-    VkDevice         device_                = VK_NULL_HANDLE;
-    u32              graphics_family_index_ = 0;
-    u32              compute_family_index_  = 0;
-    u32              present_family_index_  = 0;
-    VkQueue          graphics_queue_        = VK_NULL_HANDLE;
-    VkQueue          compute_queue_         = VK_NULL_HANDLE;
-    VkQueue          present_queue_         = VK_NULL_HANDLE;
+    VkInstance               instance_              = VK_NULL_HANDLE;
+    VkSurfaceKHR             surface_               = VK_NULL_HANDLE;
+    VkPhysicalDevice         physical_device_       = VK_NULL_HANDLE;
+    VkPhysicalDeviceFeatures device_features_       = {};
+    VkDevice                 device_                = VK_NULL_HANDLE;
+    u32                      graphics_family_index_ = 0;
+    u32                      compute_family_index_  = 0;
+    u32                      present_family_index_  = 0;
+    VkQueue                  graphics_queue_        = VK_NULL_HANDLE;
+    VkQueue                  compute_queue_         = VK_NULL_HANDLE;
+    VkQueue                  present_queue_         = VK_NULL_HANDLE;
 
     VkSwapchainKHR           swapchain_        = VK_NULL_HANDLE;
     VkExtent2D               swapchain_extent_ = {};
