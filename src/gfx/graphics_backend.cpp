@@ -226,12 +226,12 @@ Mesh GraphicsBackend::load_mesh(const Vertex* data, u32 num_vertices) {
 }
 
 BatchGroup GraphicsBackend::add_batches(const std::vector<gfx::MeshBatch>& batches) {
+    BatchGroup batch_group;
+
     if (batches.empty()) {
         core_.get_logger().warn("Tried to add 0 batches");
-        return;
+        return batch_group;
     }
-
-    BatchGroup batch_group;
 
     if (get_current_frame().num_draws_ + batches.size() > MAX_DRAWS) {
         core_.get_logger().warn("Could not add batch group with % draws. Current draws: %, max draws: %",
@@ -800,6 +800,12 @@ VkPipeline GraphicsBackend::create_graphics_pipeline(const std::vector<ShaderInf
     color_blend_state.attachmentCount                     = 1;
     color_blend_state.pAttachments                        = &blend_attachment;
 
+    VkDynamicState                   dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic_state    = {};
+    dynamic_state.sType                               = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_state.pDynamicStates                      = dynamic_states;
+    dynamic_state.dynamicStateCount                   = std::size(dynamic_states);
+
     VkGraphicsPipelineCreateInfo graphics_pipeline_ci = {};
     graphics_pipeline_ci.sType                        = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     graphics_pipeline_ci.stageCount                   = stages.size();
@@ -811,7 +817,7 @@ VkPipeline GraphicsBackend::create_graphics_pipeline(const std::vector<ShaderInf
     graphics_pipeline_ci.pMultisampleState            = &multisample;
     graphics_pipeline_ci.pDepthStencilState           = nullptr;
     graphics_pipeline_ci.pColorBlendState             = &color_blend_state;
-    graphics_pipeline_ci.pDynamicState                = nullptr;
+    graphics_pipeline_ci.pDynamicState                = &dynamic_state;
     graphics_pipeline_ci.layout                       = pipeline_layout;
     graphics_pipeline_ci.renderPass                   = render_pass;
     graphics_pipeline_ci.subpass                      = 0;

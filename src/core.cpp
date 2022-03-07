@@ -13,17 +13,20 @@ void Core::run() {
     f32    aspect_ratio = (f32)config_.get_window_width() / (f32)config_.get_window_height();
     Camera camera(glm::half_pi<f32>(), aspect_ratio, 0.01f, 100.0f, glm::vec3(0), glm::vec3(0, 0, -1));
 
-    // clockwise upside down
-    Vertex    triangle_vertices[] = {Vertex{0.5f, 0.5f, 0, 1, 1},
-                                  Vertex{0, -0.5f, 0, 0.5f, 0},
-                                  Vertex{-0.5f, 0.5f, 0, 0, 1}};
+    // counter clockwise winding order
+
+    Vertex triangle_vertices[] = {
+        Vertex{-0.5f, -0.5f, 0, 0, 1},
+        Vertex{0.5f, -0.5f, 0, 1, 1},
+        Vertex{0, 0.5f, 0, 0.5f, 0},
+    };
     gfx::Mesh triangle = platform_.get_graphics_backend().load_mesh(triangle_vertices, std::size(triangle_vertices));
 
     Vertex    bl                = {-0.5f, -0.5f, 0, 0, 0};
     Vertex    br                = {0.5f, -0.5f, 0, 1, 0};
     Vertex    tr                = {0.5f, 0.5f, 0, 1, 1};
     Vertex    tl                = {-0.5f, 0.5f, 0, 0, 1};
-    Vertex    square_vertices[] = {tr, br, bl, tr, bl, tl};
+    Vertex    square_vertices[] = {bl, br, tr, bl, tr, tl};
     gfx::Mesh square = platform_.get_graphics_backend().load_mesh(square_vertices, std::size(square_vertices));
 
     while (running_) {
@@ -37,7 +40,7 @@ void Core::run() {
         i32 num_meshes = 20;
         for (i32 i = 0; i < num_meshes; ++i) {
             RenderObject obj;
-            //obj.mesh = (i < num_meshes / 2) ? triangle : square;
+            // obj.mesh = (i < num_meshes / 2) ? triangle : square;
             obj.mesh = (i % 2 == 0) ? triangle : square;
 
             /*

@@ -21,6 +21,8 @@ void Renderer::render() {
 
     static gfx::GraphicsPass pass(core_, gfx_, pass_desc);
 
+    // TODO: materials
+    // TODO: attachment description
     // TODO: index buffer support
 
     process_object_data();
@@ -51,20 +53,20 @@ void Renderer::render() {
 void Renderer::process_object_data() {
     // create batches and object data
     std::vector<gfx::ObjectData> object_data;
-    std::vector<gfx::MeshBatch> batches;
-    gfx::MeshBatch prev_batch;
+    std::vector<gfx::MeshBatch>  batches;
+    gfx::MeshBatch               prev_batch;
     for (auto [mesh_id, render_objects] : render_objects_by_mesh_) {
         gfx::MeshBatch batch;
-        batch.mesh = render_objects.front().mesh;
+        batch.mesh             = render_objects.front().mesh;
         batch.first_object_idx = prev_batch.first_object_idx + prev_batch.num_objects;
-        batch.num_objects = render_objects.size();
+        batch.num_objects      = render_objects.size();
         batches.emplace_back(batch);
 
         prev_batch = batch;
 
         for (const RenderObject& robj : render_objects) {
             gfx::ObjectData odata = {};
-            odata.model_matrix = robj.model_matrix;
+            odata.model_matrix    = robj.model_matrix;
             object_data.emplace_back(odata);
         }
     }

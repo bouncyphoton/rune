@@ -31,6 +31,17 @@ void GraphicsPass::run(VkCommandBuffer cmd, const std::function<void(VkCommandBu
 
     vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
+    VkViewport flipped_viewport = {};
+    flipped_viewport.x          = (f32)desc_.render_area.offset.x;
+    flipped_viewport.y          = (f32)desc_.render_area.offset.y + (f32)desc_.render_area.extent.height;
+    flipped_viewport.width      = (f32)desc_.render_area.extent.width;
+    flipped_viewport.height     = -1.0f * (f32)desc_.render_area.extent.height;
+    flipped_viewport.minDepth = 0.0f;
+    flipped_viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &flipped_viewport);
+
+    vkCmdSetScissor(cmd, 0, 1, &desc_.render_area);
+
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
 
     func(cmd);
