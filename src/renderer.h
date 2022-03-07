@@ -30,6 +30,7 @@ class Renderer {
 
     /**
      * Add a render object to be rendered this frame
+     * @note Order is not guaranteed to be preserved
      * @param robj Render object data for rendering
      */
     void add_to_frame(const RenderObject& robj);
@@ -56,9 +57,9 @@ class Renderer {
 
     Camera camera_;
 
-    // list of objects to render
-    std::vector<RenderObject> render_objects_;
-    gfx::BatchGroup           geometry_batch_group_;
+    // render objects grouped by mesh id, we're wasting 8 bytes here per element in vector
+    std::unordered_map<u64, std::vector<RenderObject>> render_objects_by_mesh_;
+    gfx::BatchGroup                                    geometry_batch_group_;
 };
 
 } // namespace rune

@@ -37,8 +37,8 @@ void Core::run() {
         i32 num_meshes = 20;
         for (i32 i = 0; i < num_meshes; ++i) {
             RenderObject obj;
-            obj.mesh = (i < num_meshes / 2) ? triangle : square;
-            // obj.mesh = (i % 2 == 0) ? triangle : square;
+            //obj.mesh = (i < num_meshes / 2) ? triangle : square;
+            obj.mesh = (i % 2 == 0) ? triangle : square;
 
             /*
             obj.model_matrix = ;

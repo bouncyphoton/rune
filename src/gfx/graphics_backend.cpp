@@ -226,6 +226,11 @@ Mesh GraphicsBackend::load_mesh(const Vertex* data, u32 num_vertices) {
 }
 
 BatchGroup GraphicsBackend::add_batches(const std::vector<gfx::MeshBatch>& batches) {
+    if (batches.empty()) {
+        core_.get_logger().warn("Tried to add 0 batches");
+        return;
+    }
+
     BatchGroup batch_group;
 
     if (get_current_frame().num_draws_ + batches.size() > MAX_DRAWS) {

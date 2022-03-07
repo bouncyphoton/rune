@@ -37,6 +37,10 @@ struct Mesh {
         return num_vertices_;
     }
 
+    [[nodiscard]] u64 get_id() const {
+        return id_;
+    }
+
     bool operator==(const Mesh& rhs) const {
         return first_vertex_ == rhs.first_vertex_ && num_vertices_ == rhs.num_vertices_;
     }
@@ -45,8 +49,13 @@ struct Mesh {
     }
 
   private:
-    u32 first_vertex_;
-    u32 num_vertices_;
+    union {
+        struct {
+            u32 first_vertex_;
+            u32 num_vertices_;
+        };
+        u64 id_;
+    };
 };
 
 struct MeshBatch {

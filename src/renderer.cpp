@@ -8,7 +8,7 @@ namespace rune {
 Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_graphics_backend()) {}
 
 void Renderer::add_to_frame(const RenderObject& robj) {
-    render_objects_.emplace_back(robj);
+    render_objects_by_mesh_[robj.mesh.get_id()].emplace_back(robj);
 }
 
 void Renderer::render() {
@@ -49,42 +49,31 @@ void Renderer::render() {
 }
 
 void Renderer::process_object_data() {
-    // TODO: sort objects to be optimal for batching
+    // create batches and object data
+    std::vector<gfx::ObjectData> object_data;
+    std::vector<gfx::MeshBatch> batches;
+    gfx::MeshBatch prev_batch;
+    for (auto [mesh_id, render_objects] : render_objects_by_mesh_) {
+        gfx::MeshBatch batch;
+        batch.mesh = render_objects.front().mesh;
+        batch.first_object_idx = prev_batch.first_object_idx + prev_batch.num_objects;
+        batch.num_objects = render_objects.size();
+        batches.emplace_back(batch);
 
-    // update object data
-    std::vector<gfx::ObjectData> object_data(render_objects_.size());
-    for (u32 i = 0; i < render_objects_.size(); ++i) {
-        object_data[i].model_matrix = render_objects_[i].model_matrix;
+        prev_batch = batch;
+
+        for (const RenderObject& robj : render_objects) {
+            gfx::ObjectData odata = {};
+            odata.model_matrix = robj.model_matrix;
+            object_data.emplace_back(odata);
+        }
     }
     gfx_.update_object_data(object_data);
-
-    // create batches
-    std::vector<gfx::MeshBatch> batches;
-    gfx::MeshBatch              current_batch;
-    for (const auto& render_object : render_objects_) {
-        if (render_object.mesh != current_batch.mesh) {
-            if (current_batch.num_objects > 0) {
-                batches.emplace_back(current_batch);
-            }
-
-            gfx::MeshBatch prev_batch      = current_batch;
-            current_batch                  = gfx::MeshBatch();
-            current_batch.mesh             = render_object.mesh;
-            current_batch.first_object_idx = prev_batch.first_object_idx + prev_batch.num_objects;
-        }
-
-        ++current_batch.num_objects;
-    }
-    // get the left over batch
-    if (current_batch.num_objects > 0) {
-        batches.emplace_back(current_batch);
-    }
-
     geometry_batch_group_ = gfx_.add_batches(batches);
 }
 
 void Renderer::reset_frame() {
-    render_objects_.clear();
+    render_objects_by_mesh_.clear();
 }
 
 } // namespace rune
