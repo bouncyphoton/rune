@@ -88,7 +88,10 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         frame.object_data_ = create_buffer_gpu(sizeof(ObjectData) * MAX_OBJECTS,
                                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                BufferDestroyPolicy::AUTOMATIC_DESTROY);
-        // frame.draw_data_ = create_buffer_gpu();
+        frame.draw_data_ =
+            create_buffer_gpu(sizeof(VkDrawIndirectCommand) * MAX_DRAWS,
+                              VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT /*| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT*/,
+                              BufferDestroyPolicy::AUTOMATIC_DESTROY);
 
         VkSemaphoreCreateInfo semaphore_create_info = {};
         semaphore_create_info.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -117,10 +120,6 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     unified_vertex_buffer_ = create_buffer_gpu(sizeof(Vertex) * MAX_UNIQUE_VERTICES,
                                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                BufferDestroyPolicy::AUTOMATIC_DESTROY);
-
-    // TODO: remove temp
-    Vertex vertices[] = {Vertex{0.5f, 0.5f, 0, 1, 1}, Vertex{0, -0.5f, 0, 0.5f, 0}, Vertex{-0.5f, 0.5f, 0, 0, 1}};
-    copy_to_buffer(vertices, sizeof(vertices), unified_vertex_buffer_, 0);
 
     // todo: swapchain resizing
 }
@@ -151,6 +150,7 @@ void GraphicsBackend::begin_frame() {
     for (auto& cache : get_current_frame().descriptor_set_caches_) {
         cache.second.reset();
     }
+    get_current_frame().num_draws_ = 0;
 
     // get next image
     vk_check(vkAcquireNextImageKHR(device_,
@@ -202,6 +202,83 @@ void GraphicsBackend::update_object_data(const ObjectData* data, u32 num_objects
     }
 
     copy_to_buffer((void*)data, num_objects * sizeof(ObjectData), get_object_data_buffer(), 0);
+}
+
+Mesh GraphicsBackend::load_mesh(const Vertex* data, u32 num_vertices) {
+    // Make sure we have room
+    if (num_vertices_in_buffer_ + num_vertices > MAX_UNIQUE_VERTICES) {
+        core_.get_logger().warn("Could not load mesh with % vertices. Current: %, max: %",
+                                num_vertices,
+                                num_vertices_in_buffer_,
+                                MAX_UNIQUE_VERTICES);
+        return Mesh();
+    }
+
+    // Add vertices for mesh
+    u32 first_vertex_idx = num_vertices_in_buffer_;
+    copy_to_buffer(data,
+                   num_vertices * sizeof(Vertex),
+                   unified_vertex_buffer_,
+                   num_vertices_in_buffer_ * sizeof(Vertex));
+    num_vertices_in_buffer_ += num_vertices;
+
+    return Mesh(first_vertex_idx, num_vertices);
+}
+
+BatchGroup GraphicsBackend::add_batches(const std::vector<gfx::MeshBatch>& batches) {
+    BatchGroup batch_group;
+
+    if (get_current_frame().num_draws_ + batches.size() > MAX_DRAWS) {
+        core_.get_logger().warn("Could not add batch group with % draws. Current draws: %, max draws: %",
+                                batches.size(),
+                                get_current_frame().num_draws_,
+                                MAX_DRAWS);
+        return batch_group;
+    }
+
+    std::vector<VkDrawIndirectCommand> draws;
+    for (const gfx::MeshBatch& batch : batches) {
+        VkDrawIndirectCommand draw = {};
+        draw.firstInstance         = batch.first_object_idx;
+        draw.instanceCount         = batch.num_objects;
+        draw.firstVertex           = batch.mesh.get_first_vertex();
+        draw.vertexCount           = batch.mesh.get_num_vertices();
+
+        draws.emplace_back(draw);
+    }
+
+    batch_group.first_batch = get_current_frame().num_draws_;
+    batch_group.num_batches = batches.size();
+
+    copy_to_buffer(draws.data(),
+                   draws.size() * sizeof(draws[0]),
+                   get_current_frame().draw_data_,
+                   get_current_frame().num_draws_);
+    get_current_frame().num_draws_ += draws.size();
+
+    return batch_group;
+}
+
+void GraphicsBackend::draw_batch_group(VkCommandBuffer cmd, const BatchGroup& group) {
+    bool multiDrawIndirectEnabled = false;
+
+    if (multiDrawIndirectEnabled) {
+        // TODO: try multi draw indirect
+
+        vkCmdDrawIndirect(cmd,
+                          get_current_frame().draw_data_.buffer,
+                          group.first_batch * sizeof(VkDrawIndirectCommand),
+                          group.num_batches,
+                          sizeof(VkDrawIndirectCommand));
+    } else {
+        for (u32 i = 0; i < group.num_batches; ++i) {
+            vkCmdDrawIndirect(cmd,
+                              get_current_frame().draw_data_.buffer,
+                              (group.first_batch + i) * sizeof(VkDrawIndirectCommand),
+                              1,
+                              sizeof(VkDrawIndirectCommand));
+        }
+    }
 }
 
 void GraphicsBackend::choose_physical_device() {
@@ -356,8 +433,8 @@ void GraphicsBackend::create_swapchain() {
     swapchain_extent_ = capabilities.currentExtent;
     if (swapchain_extent_.width == UINT32_MAX && swapchain_extent_.height == UINT32_MAX) {
         swapchain_extent_.width  = std::clamp(core_.get_config().get_window_width(),
-                                              capabilities.minImageExtent.width,
-                                              capabilities.maxImageExtent.width);
+                                             capabilities.minImageExtent.width,
+                                             capabilities.maxImageExtent.width);
         swapchain_extent_.height = std::clamp(core_.get_config().get_window_height(),
                                               capabilities.minImageExtent.height,
                                               capabilities.maxImageExtent.height);
@@ -522,7 +599,7 @@ GraphicsBackend::create_buffer_gpu(VkDeviceSize size, VkBufferUsageFlags buffer_
     return buffer;
 }
 
-void GraphicsBackend::copy_to_buffer(void*         src_data,
+void GraphicsBackend::copy_to_buffer(const void*   src_data,
                                      VkDeviceSize  src_size,
                                      const Buffer& dst_buffer,
                                      VkDeviceSize  offset) {

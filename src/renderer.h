@@ -2,6 +2,8 @@
 #define RUNE_RENDERER_H
 
 #include "gfx/camera.h"
+#include "gfx/graphics_backend.h"
+
 #include <glm/glm.hpp>
 #include <vector>
 
@@ -17,6 +19,7 @@ class GraphicsBackend;
 
 struct RenderObject {
     glm::mat4 model_matrix;
+    gfx::Mesh mesh;
 };
 
 // graphics frontend
@@ -53,8 +56,9 @@ class Renderer {
 
     Camera camera_;
 
-    // temporary unordered objects to render
+    // list of objects to render
     std::vector<RenderObject> render_objects_;
+    gfx::BatchGroup           geometry_batch_group_;
 };
 
 } // namespace rune

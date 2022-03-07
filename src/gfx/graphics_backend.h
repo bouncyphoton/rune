@@ -3,6 +3,7 @@
 
 #include "gfx/render_pass.h"
 #include "types.h"
+#include "vertex.h"
 
 #include <functional>
 #include <glm/glm.hpp>
@@ -22,6 +23,41 @@ namespace rune::gfx {
 
 struct ObjectData {
     glm::mat4 model_matrix;
+};
+
+struct Mesh {
+    Mesh() : Mesh(0, 0) {}
+    Mesh(u32 first_vertex, u32 num_vertices) : first_vertex_(first_vertex), num_vertices_(num_vertices) {}
+
+    [[nodiscard]] u32 get_first_vertex() const {
+        return first_vertex_;
+    }
+
+    [[nodiscard]] u32 get_num_vertices() const {
+        return num_vertices_;
+    }
+
+    bool operator==(const Mesh& rhs) const {
+        return first_vertex_ == rhs.first_vertex_ && num_vertices_ == rhs.num_vertices_;
+    }
+    bool operator!=(const Mesh& rhs) const {
+        return !(rhs == *this);
+    }
+
+  private:
+    u32 first_vertex_;
+    u32 num_vertices_;
+};
+
+struct MeshBatch {
+    u32  first_object_idx = 0;
+    u32  num_objects      = 0;
+    Mesh mesh;
+};
+
+struct BatchGroup {
+    u32 first_batch = 0;
+    u32 num_batches = 0;
 };
 
 class GraphicsBackend {
@@ -63,6 +99,16 @@ class GraphicsBackend {
 
     void update_object_data(const ObjectData* data, u32 num_objects);
 
+    Mesh load_mesh(const std::vector<Vertex>& vertices) {
+        return load_mesh(vertices.data(), vertices.size());
+    }
+
+    Mesh load_mesh(const Vertex* data, u32 num_vertices);
+
+    BatchGroup add_batches(const std::vector<gfx::MeshBatch>& batches);
+
+    void draw_batch_group(VkCommandBuffer cmd, const BatchGroup& group);
+
     // temp
     VkRenderPass          create_render_pass();
     void                  create_framebuffers(VkRenderPass render_pass, VkRect2D render_area);
@@ -93,6 +139,7 @@ class GraphicsBackend {
     static constexpr u32 NUM_FRAMES_IN_FLIGHT = 2;
     static constexpr u32 MAX_UNIQUE_VERTICES  = 1000;
     static constexpr u32 MAX_OBJECTS          = 1000;
+    static constexpr u32 MAX_DRAWS            = 1000;
 
     struct DescriptorSetCache {
         [[nodiscard]] bool empty() const {
@@ -132,6 +179,8 @@ class GraphicsBackend {
         VkSemaphore     render_finished_;
         VkFence         in_flight_;
         Buffer          object_data_;
+        Buffer          draw_data_; // holds VkDrawIndirectCommands
+        u32             num_draws_; // aka num_batches
 
         std::unordered_map<VkDescriptorSetLayout, DescriptorSetCache> descriptor_set_caches_;
 
@@ -153,7 +202,7 @@ class GraphicsBackend {
     };
 
     Buffer create_buffer_gpu(VkDeviceSize size, VkBufferUsageFlags buffer_usage, BufferDestroyPolicy policy);
-    void   copy_to_buffer(void* src_data, VkDeviceSize src_size, const Buffer& dst_buffer, VkDeviceSize offset);
+    void   copy_to_buffer(const void* src_data, VkDeviceSize src_size, const Buffer& dst_buffer, VkDeviceSize offset);
     void   destroy_buffer(const Buffer& buffer);
 
     PerFrame& get_current_frame() {
@@ -193,7 +242,9 @@ class GraphicsBackend {
 
     std::unordered_map<VkRenderPass, std::vector<VkFramebuffer>> framebuffers_;
 
+    // unified buffers
     Buffer unified_vertex_buffer_;
+    u32    num_vertices_in_buffer_ = 0;
 };
 
 } // namespace rune::gfx

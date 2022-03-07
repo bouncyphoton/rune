@@ -5,9 +5,7 @@
 
 namespace rune {
 
-Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_graphics_backend()) {
-    // gfx_.load_model();
-}
+Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_graphics_backend()) {}
 
 void Renderer::add_to_frame(const RenderObject& robj) {
     render_objects_.emplace_back(robj);
@@ -23,7 +21,7 @@ void Renderer::render() {
 
     static gfx::GraphicsPass pass(core_, gfx_, pass_desc);
 
-    // TODO: indices
+    // TODO: index buffer support
 
     process_object_data();
 
@@ -36,11 +34,13 @@ void Renderer::render() {
             writes.set_buffer("u_object_data", gfx_.get_object_data_buffer());
             pass.set_descriptors(cmd, writes);
 
-            glm::mat4 vp = camera_.get_view_projection_matrix();
-            pass.set_push_constants(cmd, VK_SHADER_STAGE_VERTEX_BIT, vp);
+            struct DrawData {
+                glm::mat4 vp;
+            } draw_data  = {};
+            draw_data.vp = camera_.get_view_projection_matrix();
+            pass.set_push_constants(cmd, VK_SHADER_STAGE_VERTEX_BIT, draw_data);
 
-            // draw all
-            vkCmdDraw(cmd, 3, render_objects_.size(), 0, 0);
+            gfx_.draw_batch_group(cmd, geometry_batch_group_);
         });
     }
     gfx_.end_frame();
@@ -49,12 +49,38 @@ void Renderer::render() {
 }
 
 void Renderer::process_object_data() {
+    // TODO: sort objects to be optimal for batching
+
     // update object data
     std::vector<gfx::ObjectData> object_data(render_objects_.size());
     for (u32 i = 0; i < render_objects_.size(); ++i) {
         object_data[i].model_matrix = render_objects_[i].model_matrix;
     }
     gfx_.update_object_data(object_data);
+
+    // create batches
+    std::vector<gfx::MeshBatch> batches;
+    gfx::MeshBatch              current_batch;
+    for (const auto& render_object : render_objects_) {
+        if (render_object.mesh != current_batch.mesh) {
+            if (current_batch.num_objects > 0) {
+                batches.emplace_back(current_batch);
+            }
+
+            gfx::MeshBatch prev_batch      = current_batch;
+            current_batch                  = gfx::MeshBatch();
+            current_batch.mesh             = render_object.mesh;
+            current_batch.first_object_idx = prev_batch.first_object_idx + prev_batch.num_objects;
+        }
+
+        ++current_batch.num_objects;
+    }
+    // get the left over batch
+    if (current_batch.num_objects > 0) {
+        batches.emplace_back(current_batch);
+    }
+
+    geometry_batch_group_ = gfx_.add_batches(batches);
 }
 
 void Renderer::reset_frame() {
