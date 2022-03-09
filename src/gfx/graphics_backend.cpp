@@ -48,7 +48,6 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
 
     choose_physical_device();
     create_logical_device();
-    create_swapchain();
 
     // vulkan memory allocator
     VmaAllocatorCreateInfo vma_ci = {};
@@ -66,6 +65,8 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     command_pool_create_info.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     vk_check(vkCreateCommandPool(device_, &command_pool_create_info, nullptr, &command_pool_));
     cleanup_.emplace([=] { vkDestroyCommandPool(device_, command_pool_, nullptr); });
+
+    create_swapchain();
 
     // create descriptor pool
     VkDescriptorPoolSize       sizes[]                     = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}};
@@ -133,12 +134,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
 GraphicsBackend::~GraphicsBackend() {
     vkDeviceWaitIdle(device_);
 
-    for (auto [render_pass, framebuffers] : framebuffers_) {
-        vkDestroyRenderPass(device_, render_pass, nullptr);
-        for (VkFramebuffer framebuffer : framebuffers) {
-            vkDestroyFramebuffer(device_, framebuffer, nullptr);
-        }
-    }
+    // todo: allow render passes, framebuffers, etc. to be destroyed mid-game
 
     while (!cleanup_.empty()) {
         cleanup_.top()();
@@ -172,7 +168,68 @@ void GraphicsBackend::begin_frame() {
     vk_check(vkBeginCommandBuffer(get_current_frame().command_buffer_, &begin_info));
 }
 
-void GraphicsBackend::end_frame() {
+void GraphicsBackend::end_frame(const gfx::Texture& texture) {
+    // Prepare image to be transferred from
+    transition_image_layout(get_current_frame().command_buffer_,
+                            texture.get_image(),
+                            VK_IMAGE_ASPECT_COLOR_BIT,
+                            texture.get_image_layout(),
+                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            0,
+                            VK_ACCESS_TRANSFER_READ_BIT,
+                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    // Prepare swapchain image to be blit to
+    transition_image_layout(get_current_frame().command_buffer_,
+                            swapchain_images_[swap_image_index_],
+                            VK_IMAGE_ASPECT_COLOR_BIT,
+                            VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            0,
+                            VK_ACCESS_TRANSFER_WRITE_BIT,
+                            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+    // Blit image
+    VkImageBlit blit_region               = {};
+    blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit_region.srcSubresource.layerCount = 1;
+    blit_region.srcOffsets[1]             = {800, 600, 1};
+    blit_region.dstOffsets[1]             = {(i32)swapchain_extent_.width, (i32)swapchain_extent_.height, 1};
+    blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    blit_region.dstSubresource.layerCount = 1;
+    vkCmdBlitImage(get_current_frame().command_buffer_,
+                   texture.get_image(),
+                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   swapchain_images_[swap_image_index_],
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1,
+                   &blit_region,
+                   VK_FILTER_NEAREST);
+
+    // Undo image layout transition
+    transition_image_layout(get_current_frame().command_buffer_,
+                            texture.get_image(),
+                            VK_IMAGE_ASPECT_COLOR_BIT,
+                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            texture.get_image_layout(),
+                            VK_ACCESS_TRANSFER_READ_BIT,
+                            0,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+    // Prepare swapchain image for presentation
+    transition_image_layout(get_current_frame().command_buffer_,
+                            swapchain_images_[swap_image_index_],
+                            VK_IMAGE_ASPECT_COLOR_BIT,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                            VK_ACCESS_TRANSFER_WRITE_BIT,
+                            0,
+                            VK_PIPELINE_STAGE_TRANSFER_BIT,
+                            VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
     vk_check(vkEndCommandBuffer(get_current_frame().command_buffer_));
 
     // wait for image to be available, submit queue, signal render_finished_ when done
@@ -674,59 +731,92 @@ void GraphicsBackend::destroy_buffer(const Buffer& buffer) {
     vmaDestroyBuffer(allocator_, buffer.buffer, buffer.allocation);
 }
 
-VkRenderPass GraphicsBackend::create_render_pass() {
-    VkAttachmentDescription color_attachment = {};
-    color_attachment.format                  = swapchain_format_.format;
-    color_attachment.samples                 = VK_SAMPLE_COUNT_1_BIT;
-    color_attachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    color_attachment.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    color_attachment.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
-    color_attachment.finalLayout             = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+VkRenderPass GraphicsBackend::create_render_pass(const std::vector<VkFormat>& formats) {
+    std::vector<VkAttachmentDescription> attachments;
+    attachments.reserve(formats.size());
 
-    VkAttachmentReference color_attachment_ref = {};
-    color_attachment_ref.attachment            = 0;
-    color_attachment_ref.layout                = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    std::vector<VkAttachmentReference> color_references;
+    color_references.reserve(formats.size());
+
+    std::optional<VkAttachmentReference> depth_reference;
+
+    for (VkFormat format : formats) {
+        VkAttachmentDescription desc = {};
+        desc.format                  = format;
+        desc.samples                 = VK_SAMPLE_COUNT_1_BIT;
+        desc.loadOp                  = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        desc.storeOp                 = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        desc.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        desc.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        desc.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        VkAttachmentReference ref = {};
+        if (format == VK_FORMAT_UNDEFINED) {
+            ref.attachment = VK_ATTACHMENT_UNUSED;
+        } else {
+            ref.attachment = attachments.size();
+
+            if (is_depth_format(format)) {
+                if (is_stencil_format(format)) {
+                    ref.layout          = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                    desc.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                    desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
+                } else {
+                    ref.layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                }
+                // there can only be one depth attachment
+                rune_assert(core_, !depth_reference.has_value());
+                depth_reference = ref;
+            } else {
+                ref.layout   = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                desc.loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                color_references.emplace_back(ref);
+            }
+
+            desc.finalLayout = ref.layout;
+            attachments.emplace_back(desc);
+        }
+    }
 
     VkSubpassDescription subpass = {};
     subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments    = &color_attachment_ref;
+    subpass.colorAttachmentCount = color_references.size();
+    subpass.pColorAttachments    = color_references.data();
+    if (depth_reference.has_value()) {
+        subpass.pDepthStencilAttachment = &(depth_reference.value());
+    }
 
     VkRenderPassCreateInfo render_pass_create_info = {};
     render_pass_create_info.sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    render_pass_create_info.pAttachments           = &color_attachment;
-    render_pass_create_info.attachmentCount        = 1;
+    render_pass_create_info.pAttachments           = attachments.data();
+    render_pass_create_info.attachmentCount        = attachments.size();
     render_pass_create_info.pSubpasses             = &subpass;
     render_pass_create_info.subpassCount           = 1;
 
     VkRenderPass render_pass;
     vk_check(vkCreateRenderPass(device_, &render_pass_create_info, nullptr, &render_pass));
+    cleanup_.emplace([=] { vkDestroyRenderPass(device_, render_pass, nullptr); });
     return render_pass;
 }
 
-void GraphicsBackend::create_framebuffers(VkRenderPass render_pass, VkRect2D render_area) {
+VkFramebuffer GraphicsBackend::create_framebuffer(VkRenderPass                    render_pass,
+                                                  VkRect2D                        render_area,
+                                                  const std::vector<VkImageView>& views) {
     VkFramebufferCreateInfo framebuffer_create_info = {};
     framebuffer_create_info.sType                   = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
     framebuffer_create_info.renderPass              = render_pass;
-    framebuffer_create_info.attachmentCount         = 1;
+    framebuffer_create_info.attachmentCount         = views.size();
+    framebuffer_create_info.pAttachments            = views.data();
     framebuffer_create_info.width                   = render_area.extent.width;
     framebuffer_create_info.height                  = render_area.extent.height;
     framebuffer_create_info.layers                  = 1;
 
-    std::vector<VkFramebuffer>& framebuffers = framebuffers_[render_pass];
+    VkFramebuffer framebuffer;
+    vk_check(vkCreateFramebuffer(device_, &framebuffer_create_info, nullptr, &framebuffer));
+    cleanup_.emplace([=] { vkDestroyFramebuffer(device_, framebuffer, nullptr); });
 
-    framebuffers = std::vector<VkFramebuffer>(swapchain_image_views_.size());
-
-    for (u32 i = 0; i < swapchain_image_views_.size(); ++i) {
-        framebuffer_create_info.pAttachments = &swapchain_image_views_[i];
-        vk_check(vkCreateFramebuffer(device_, &framebuffer_create_info, nullptr, &framebuffers[i]));
-    }
-}
-
-VkFramebuffer GraphicsBackend::get_framebuffer(VkRenderPass render_pass) {
-    return framebuffers_.at(render_pass).at(swap_image_index_);
+    return framebuffer;
 }
 
 VkDescriptorSetLayout GraphicsBackend::create_descriptor_set_layout(const VkDescriptorSetLayoutCreateInfo& set_info) {
@@ -878,6 +968,108 @@ VkDescriptorSet GraphicsBackend::get_descriptor_set(VkDescriptorSetLayout layout
 
 void GraphicsBackend::update_descriptor_sets(const std::vector<VkWriteDescriptorSet>& writes) {
     vkUpdateDescriptorSets(device_, writes.size(), writes.data(), 0, nullptr);
+}
+
+bool GraphicsBackend::is_depth_format(VkFormat format) {
+    switch (format) {
+    case VK_FORMAT_D16_UNORM:
+    case VK_FORMAT_D16_UNORM_S8_UINT:
+    case VK_FORMAT_D24_UNORM_S8_UINT:
+    case VK_FORMAT_D32_SFLOAT:
+    case VK_FORMAT_D32_SFLOAT_S8_UINT:
+    case VK_FORMAT_X8_D24_UNORM_PACK32:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool GraphicsBackend::is_stencil_format(VkFormat format) {
+    switch (format) {
+    case VK_FORMAT_S8_UINT:
+    case VK_FORMAT_D16_UNORM_S8_UINT:
+    case VK_FORMAT_D24_UNORM_S8_UINT:
+    case VK_FORMAT_D32_SFLOAT_S8_UINT:
+        return true;
+    default:
+        return false;
+    }
+}
+
+gfx::Texture GraphicsBackend::create_texture(u32 width, u32 height) {
+    VkFormat format = VK_FORMAT_R8G8B8A8_SNORM;
+
+    VkImageCreateInfo image_info = {};
+    image_info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType         = VK_IMAGE_TYPE_2D;
+    image_info.format            = format;
+    image_info.extent            = {.width = width, .height = height, .depth = 1};
+    image_info.mipLevels         = 1;
+    image_info.arrayLayers       = 1;
+    image_info.samples           = VK_SAMPLE_COUNT_1_BIT;
+    image_info.tiling            = VK_IMAGE_TILING_OPTIMAL;
+    image_info.usage             = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    image_info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VmaAllocationCreateInfo alloc_info = {};
+    alloc_info.usage                   = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    VkImage       image;
+    VmaAllocation allocation;
+    vk_check(vmaCreateImage(allocator_, &image_info, &alloc_info, &image, &allocation, nullptr));
+    cleanup_.emplace([=] { vmaDestroyImage(allocator_, image, allocation); });
+
+    VkImageViewCreateInfo view_info       = {};
+    view_info.sType                       = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image                       = image;
+    view_info.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format                      = format;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.layerCount = 1;
+
+    VkImageView view;
+    vk_check(vkCreateImageView(device_, &view_info, nullptr, &view));
+    cleanup_.emplace([=] { vkDestroyImageView(device_, view, nullptr); });
+
+    one_time_submit(graphics_queue_, [&](VkCommandBuffer cmd) {
+        transition_image_layout(cmd,
+                                image,
+                                view_info.subresourceRange.aspectMask,
+                                VK_IMAGE_LAYOUT_UNDEFINED,
+                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                0,
+                                0,
+                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    });
+
+    return gfx::Texture(image, view, format, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+}
+
+void GraphicsBackend::transition_image_layout(VkCommandBuffer      cmd,
+                                              VkImage              image,
+                                              VkImageAspectFlags   aspect,
+                                              VkImageLayout        old_layout,
+                                              VkImageLayout        new_layout,
+                                              VkAccessFlags        src_access,
+                                              VkAccessFlags        dst_access,
+                                              VkPipelineStageFlags src_stage,
+                                              VkPipelineStageFlags dst_stage) {
+    VkImageMemoryBarrier barrier        = {};
+    barrier.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask               = src_access;
+    barrier.dstAccessMask               = dst_access;
+    barrier.oldLayout                   = old_layout;
+    barrier.newLayout                   = new_layout;
+    barrier.srcQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image                       = image;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.aspectMask = aspect;
+    vkCmdPipelineBarrier(cmd, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 }
 
 } // namespace rune::gfx

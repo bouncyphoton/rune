@@ -5,7 +5,10 @@
 
 namespace rune {
 
-Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_graphics_backend()) {}
+Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_graphics_backend()) {
+    // todo: remove temp image creation
+    color_tex_ = gfx_.create_texture(core_.get_config().get_window_width(), core_.get_config().get_window_height());
+}
 
 void Renderer::add_to_frame(const RenderObject& robj) {
     render_objects_by_mesh_[robj.mesh.get_id()].emplace_back(robj);
@@ -18,12 +21,19 @@ void Renderer::render() {
     pass_desc.render_area      = {0, 0, core_.get_config().get_window_width(), core_.get_config().get_window_height()};
     pass_desc.vert_shader_path = "../data/shaders/triangle.vert.spv";
     pass_desc.frag_shader_path = "../data/shaders/triangle.frag.spv";
+    pass_desc.add_color_output("o_img", *color_tex_);
+    // pass_desc.set_depth_output(*depth_tex_);
+    // pass_desc.add_color_output("o_img", my_color_texture);
+    // pass_desc.add_depth_output("depth", my_depth_texture);
 
     static gfx::GraphicsPass pass(core_, gfx_, pass_desc);
 
-    // TODO: materials
     // TODO: attachment description
     // TODO: index buffer support
+
+    // for these two, a slot map architecture would work well
+    // TODO: materials
+    // TODO: bindless textures
 
     process_object_data();
 
@@ -45,7 +55,7 @@ void Renderer::render() {
             gfx_.draw_batch_group(cmd, geometry_batch_group_);
         });
     }
-    gfx_.end_frame();
+    gfx_.end_frame(*color_tex_);
 
     reset_frame();
 }

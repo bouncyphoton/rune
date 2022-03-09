@@ -3,8 +3,10 @@
 
 #include "gfx/camera.h"
 #include "gfx/graphics_backend.h"
+#include "gfx/texture.h"
 
 #include <glm/glm.hpp>
+#include <optional>
 #include <vector>
 
 namespace rune {
@@ -60,6 +62,9 @@ class Renderer {
     // render objects grouped by mesh id, we're wasting 8 bytes here per element in vector
     std::unordered_map<u64, std::vector<RenderObject>> render_objects_by_mesh_;
     gfx::BatchGroup                                    geometry_batch_group_;
+
+    std::optional<gfx::Texture> color_tex_;
+    std::optional<gfx::Texture> depth_tex_;
 };
 
 } // namespace rune

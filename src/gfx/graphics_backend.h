@@ -2,11 +2,13 @@
 #define RUNE_GRAPHICS_BACKEND_H
 
 #include "gfx/render_pass.h"
+#include "texture.h"
 #include "types.h"
 #include "vertex.h"
 
 #include <functional>
 #include <glm/glm.hpp>
+#include <optional>
 #include <stack>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -82,7 +84,7 @@ class GraphicsBackend {
     /**
      * Submits command buffer, queues for presentation, increments current frame
      */
-    void end_frame();
+    void end_frame(const gfx::Texture& texture);
 
     /**
      * Get the command buffer for the current frame
@@ -119,14 +121,14 @@ class GraphicsBackend {
     void draw_batch_group(VkCommandBuffer cmd, const BatchGroup& group);
 
     // temp
-    VkRenderPass          create_render_pass();
-    void                  create_framebuffers(VkRenderPass render_pass, VkRect2D render_area);
-    VkFramebuffer         get_framebuffer(VkRenderPass render_pass);
-    VkDescriptorSetLayout create_descriptor_set_layout(const VkDescriptorSetLayoutCreateInfo& info);
-    VkPipelineLayout      create_pipeline_layout(const VkPipelineLayoutCreateInfo& pipeline_layout_info);
-    VkPipeline            create_graphics_pipeline(const std::vector<ShaderInfo>& shaders,
-                                                   VkPipelineLayout               pipeline_layout,
-                                                   VkRenderPass                   render_pass);
+    [[nodiscard]] VkRenderPass create_render_pass(const std::vector<VkFormat>& formats);
+    [[nodiscard]] VkFramebuffer
+    create_framebuffer(VkRenderPass render_pass, VkRect2D render_area, const std::vector<VkImageView>& views);
+    [[nodiscard]] VkDescriptorSetLayout create_descriptor_set_layout(const VkDescriptorSetLayoutCreateInfo& info);
+    [[nodiscard]] VkPipelineLayout      create_pipeline_layout(const VkPipelineLayoutCreateInfo& pipeline_layout_info);
+    [[nodiscard]] VkPipeline            create_graphics_pipeline(const std::vector<ShaderInfo>& shaders,
+                                                                 VkPipelineLayout               pipeline_layout,
+                                                                 VkRenderPass                   render_pass);
 
     /**
      * Get a descriptor set with the given layout, if none are available, allocate a new one
@@ -142,6 +144,21 @@ class GraphicsBackend {
      * @param writes A vector of VkWriteDescriptorSet
      */
     void update_descriptor_sets(const std::vector<VkWriteDescriptorSet>& writes);
+
+    static bool is_depth_format(VkFormat format);
+    static bool is_stencil_format(VkFormat format);
+
+    gfx::Texture create_texture(u32 width, u32 height);
+
+    void transition_image_layout(VkCommandBuffer      cmd,
+                                 VkImage              image,
+                                 VkImageAspectFlags   aspect,
+                                 VkImageLayout        old_layout,
+                                 VkImageLayout        new_layout,
+                                 VkAccessFlags        src_access,
+                                 VkAccessFlags        dst_access,
+                                 VkPipelineStageFlags src_stage,
+                                 VkPipelineStageFlags dst_stage);
 
   private:
     // TODO: config option?
@@ -249,8 +266,6 @@ class GraphicsBackend {
     PerFrame frames_[NUM_FRAMES_IN_FLIGHT] = {};
     u32      current_frame_                = 0;
     u32      swap_image_index_             = 0;
-
-    std::unordered_map<VkRenderPass, std::vector<VkFramebuffer>> framebuffers_;
 
     // unified buffers
     Buffer unified_vertex_buffer_;

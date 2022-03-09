@@ -1,33 +1,65 @@
 #include "graphics_pass.h"
 
 #include "core.h"
-#include "gfx/graphics_backend.h"
-#include "utils.h"
 
-#include <set>
+#include <map>
 
 namespace rune::gfx {
 
 GraphicsPass::GraphicsPass(Core& core, GraphicsBackend& gfx, const GraphicsPassDesc& desc)
     : RenderPass(core, gfx, desc.get_shaders()), desc_(desc) {
-    // TODO: allow creating a renderpass that doesn't present, like gbuffer
+    // remap attachment names to locations
+    std::map<u32, std::pair<VkImageView, VkFormat>> attachments;
+    for (const auto& [name, data] : desc_.color_outputs_) {
+        // look up attachment name
+        // todo
 
-    render_pass_ = gfx_.create_render_pass();
-    pipeline_    = gfx_.create_graphics_pipeline(desc_.get_shaders(), pipeline_layout_, render_pass_);
-    gfx_.create_framebuffers(render_pass_, desc_.render_area);
+        attachments[0] = data;
+    }
+
+    // turn into vectors
+    std::vector<VkImageView> views;
+    std::vector<VkFormat>    formats;
+    for (const auto& [idx, data] : attachments) {
+        if (idx >= views.size()) {
+            // TODO: figure out what to do with unused attachments
+            views.resize(idx + 1, VK_NULL_HANDLE);
+            formats.resize(idx + 1, VK_FORMAT_UNDEFINED);
+        }
+
+        views[idx]   = data.first;
+        formats[idx] = data.second;
+    }
+
+    // create clear values
+    for (VkFormat format : formats) {
+        VkClearValue clear_value = {};
+        if (GraphicsBackend::is_depth_format(format)) {
+            clear_value.depthStencil.depth = 1;
+        } else {
+            clear_value.color = {0, 0, 0, 1};
+        }
+        clear_values_.emplace_back(clear_value);
+    }
+
+    // create render pass
+    render_pass_ = gfx_.create_render_pass(formats);
+
+    // create framebuffer for outputs
+    framebuffer_ = gfx_.create_framebuffer(render_pass_, desc_.render_area, views);
+
+    // create the pipeline for this graphics pass
+    pipeline_ = gfx_.create_graphics_pipeline(desc_.get_shaders(), pipeline_layout_, render_pass_);
 }
 
 void GraphicsPass::run(VkCommandBuffer cmd, const std::function<void(VkCommandBuffer)>& func) {
-    VkClearValue clear_value = {};
-    clear_value.color        = {0, 0, 0, 1};
-
     VkRenderPassBeginInfo begin_info = {};
     begin_info.sType                 = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_info.renderPass            = render_pass_;
-    begin_info.framebuffer           = gfx_.get_framebuffer(render_pass_);
+    begin_info.framebuffer           = framebuffer_;
     begin_info.renderArea            = desc_.render_area;
-    begin_info.clearValueCount       = 1;
-    begin_info.pClearValues          = &clear_value;
+    begin_info.clearValueCount       = clear_values_.size();
+    begin_info.pClearValues          = clear_values_.data();
 
     vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -36,8 +68,8 @@ void GraphicsPass::run(VkCommandBuffer cmd, const std::function<void(VkCommandBu
     flipped_viewport.y          = (f32)desc_.render_area.offset.y + (f32)desc_.render_area.extent.height;
     flipped_viewport.width      = (f32)desc_.render_area.extent.width;
     flipped_viewport.height     = -1.0f * (f32)desc_.render_area.extent.height;
-    flipped_viewport.minDepth = 0.0f;
-    flipped_viewport.maxDepth = 1.0f;
+    flipped_viewport.minDepth   = 0.0f;
+    flipped_viewport.maxDepth   = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &flipped_viewport);
 
     vkCmdSetScissor(cmd, 0, 1, &desc_.render_area);
