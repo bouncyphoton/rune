@@ -165,6 +165,10 @@ class RenderPass {
         return it->second;
     }
 
+    const std::unordered_map<std::string, u32>& get_fragment_shader_outputs() {
+        return fragment_shader_outputs_;
+    }
+
   private:
     /**
      * Use shader reflection to get descriptors, push constants, and to create a pipeline layout for this render pass
@@ -175,6 +179,7 @@ class RenderPass {
     std::unordered_map<std::string, DescriptorInfo> descriptors_;
     std::vector<PushConstantsInfo>                  push_constants_;
     std::unordered_map<u32, VkDescriptorSetLayout>  descriptor_set_layouts_;
+    std::unordered_map<std::string, u32>            fragment_shader_outputs_;
 };
 
 } // namespace rune::gfx

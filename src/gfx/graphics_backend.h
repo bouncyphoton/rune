@@ -148,7 +148,7 @@ class GraphicsBackend {
     static bool is_depth_format(VkFormat format);
     static bool is_stencil_format(VkFormat format);
 
-    gfx::Texture create_texture(u32 width, u32 height);
+    gfx::Texture create_texture(VkFormat format, u32 width, u32 height);
 
     void transition_image_layout(VkCommandBuffer      cmd,
                                  VkImage              image,

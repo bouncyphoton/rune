@@ -3,18 +3,44 @@
 #include "core.h"
 
 #include <map>
+#include <unordered_set>
 
 namespace rune::gfx {
 
 GraphicsPass::GraphicsPass(Core& core, GraphicsBackend& gfx, const GraphicsPassDesc& desc)
     : RenderPass(core, gfx, desc.get_shaders()), desc_(desc) {
-    // remap attachment names to locations
-    std::map<u32, std::pair<VkImageView, VkFormat>> attachments;
-    for (const auto& [name, data] : desc_.color_outputs_) {
-        // look up attachment name
-        // todo
+    const std::unordered_map<std::string, u32>& outputs = get_fragment_shader_outputs();
 
-        attachments[0] = data;
+    std::unordered_set<std::string> unreferenced_outputs;
+    for (const auto& [name, location] : outputs) {
+        unreferenced_outputs.emplace(name);
+    }
+
+    bool success = true;
+
+    // remap attachment names to locations
+    std::map<u32, GraphicsPassDesc::ViewFormatPair> attachments;
+    for (const auto& [name, data] : desc_.color_outputs_) {
+        auto it = outputs.find(name);
+        if (it == outputs.end()) {
+            core_.get_logger().warn("could not find '%' in fragment shader outputs", name);
+            success = false;
+        } else {
+            attachments[it->second] = data;
+            unreferenced_outputs.erase(name);
+        }
+    }
+
+    // warn about unreferenced outputs
+    for (const auto& name : unreferenced_outputs) {
+        core_.get_logger().warn("unreferenced output in graphics pass: '%'", name);
+        success = false;
+    }
+
+    // todo: more validation
+
+    if (!success) {
+        core_.get_logger().fatal("failed to create graphics pass due to above warnings");
     }
 
     // turn into vectors
@@ -27,10 +53,14 @@ GraphicsPass::GraphicsPass(Core& core, GraphicsBackend& gfx, const GraphicsPassD
             formats.resize(idx + 1, VK_FORMAT_UNDEFINED);
         }
 
-        views[idx]   = data.first;
-        formats[idx] = data.second;
+        views[idx]   = data.view;
+        formats[idx] = data.format;
     }
 
+    if (desc_.depth_output_) {
+        views.emplace_back(desc_.depth_output_->view);
+        formats.emplace_back(desc_.depth_output_->format);
+    }
     // create clear values
     for (VkFormat format : formats) {
         VkClearValue clear_value = {};

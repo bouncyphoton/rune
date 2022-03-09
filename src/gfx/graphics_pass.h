@@ -2,7 +2,9 @@
 #define RUNE_GRAPHICS_PASS_H
 
 #include "gfx/render_pass.h"
-#include "texture.h"
+#include "gfx/texture.h"
+
+#include <optional>
 
 namespace rune {
 class Core;
@@ -24,13 +26,24 @@ struct GraphicsPassDesc {
         return {{VK_SHADER_STAGE_VERTEX_BIT, vert_shader_path}, {VK_SHADER_STAGE_FRAGMENT_BIT, frag_shader_path}};
     }
 
-    void add_color_output(const std::string& name, const rune::gfx::Texture& texture) {
-        color_outputs_[name] = std::make_pair(texture.get_image_view(), texture.get_format());
+    void add_color_output(const std::string& name, const Texture& texture) {
+        color_outputs_[name] = {.view = texture.get_image_view(), .format = texture.get_format()};
+    }
+
+    void set_depth_output(const Texture& texture) {
+        depth_output_ = {.view = texture.get_image_view(), .format = texture.get_format()};
     }
 
   private:
     friend class GraphicsPass;
-    std::unordered_map<std::string, std::pair<VkImageView, VkFormat>> color_outputs_;
+
+    struct ViewFormatPair {
+        VkImageView view;
+        VkFormat    format;
+    };
+
+    std::unordered_map<std::string, ViewFormatPair> color_outputs_;
+    std::optional<ViewFormatPair>                   depth_output_;
 };
 
 class GraphicsPass : public RenderPass {

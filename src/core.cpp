@@ -55,7 +55,7 @@ void Core::run() {
                 const f32 t        = (0.25f * time + float(i) / float(num_meshes - 1)) * glm::two_pi<f32>();
                 const f32 distance = 0.75f;
                 const f32 scale    = 0.25f;
-                glm::vec3 pos      = distance * glm::vec3(std::cos(t), std::sin(t), -1);
+                glm::vec3 pos = distance * glm::vec3(std::cos(t), std::sin(t) * 0.5f, -0.5f * std::abs(std::cos(t)) - 1);
 
                 obj.model_matrix = glm::translate(glm::mat4(1), pos) * glm::scale(glm::mat4(1), glm::vec3(scale));
             }

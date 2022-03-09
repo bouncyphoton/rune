@@ -757,12 +757,12 @@ VkRenderPass GraphicsBackend::create_render_pass(const std::vector<VkFormat>& fo
             ref.attachment = attachments.size();
 
             if (is_depth_format(format)) {
+                ref.layout   = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+                desc.loadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 if (is_stencil_format(format)) {
-                    ref.layout          = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
                     desc.stencilLoadOp  = VK_ATTACHMENT_LOAD_OP_CLEAR;
                     desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-                } else {
-                    ref.layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
                 }
                 // there can only be one depth attachment
                 rune_assert(core_, !depth_reference.has_value());
@@ -892,6 +892,12 @@ VkPipeline GraphicsBackend::create_graphics_pipeline(const std::vector<ShaderInf
     multisample.rasterizationSamples                 = VK_SAMPLE_COUNT_1_BIT;
     multisample.minSampleShading                     = 1.0f;
 
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state = {};
+    depth_stencil_state.sType            = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil_state.depthTestEnable  = VK_TRUE;
+    depth_stencil_state.depthWriteEnable = VK_TRUE;
+    depth_stencil_state.depthCompareOp   = VK_COMPARE_OP_LESS;
+
     VkPipelineColorBlendAttachmentState blend_attachment = {};
     blend_attachment.colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -923,7 +929,7 @@ VkPipeline GraphicsBackend::create_graphics_pipeline(const std::vector<ShaderInf
     graphics_pipeline_ci.pViewportState               = &viewport_state;
     graphics_pipeline_ci.pRasterizationState          = &rasterization;
     graphics_pipeline_ci.pMultisampleState            = &multisample;
-    graphics_pipeline_ci.pDepthStencilState           = nullptr;
+    graphics_pipeline_ci.pDepthStencilState           = &depth_stencil_state;
     graphics_pipeline_ci.pColorBlendState             = &color_blend_state;
     graphics_pipeline_ci.pDynamicState                = &dynamic_state;
     graphics_pipeline_ci.layout                       = pipeline_layout;
@@ -996,8 +1002,22 @@ bool GraphicsBackend::is_stencil_format(VkFormat format) {
     }
 }
 
-gfx::Texture GraphicsBackend::create_texture(u32 width, u32 height) {
-    VkFormat format = VK_FORMAT_R8G8B8A8_SNORM;
+gfx::Texture GraphicsBackend::create_texture(VkFormat format, u32 width, u32 height) {
+    VkImageUsageFlags  usage{};
+    VkImageAspectFlags aspect{};
+    VkImageLayout      layout{};
+    if (is_depth_format(format)) {
+        usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+        layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        if (is_stencil_format(format)) {
+            aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+    } else {
+        usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
 
     VkImageCreateInfo image_info = {};
     image_info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -1008,7 +1028,7 @@ gfx::Texture GraphicsBackend::create_texture(u32 width, u32 height) {
     image_info.arrayLayers       = 1;
     image_info.samples           = VK_SAMPLE_COUNT_1_BIT;
     image_info.tiling            = VK_IMAGE_TILING_OPTIMAL;
-    image_info.usage             = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    image_info.usage             = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | usage;
     image_info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
     image_info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
@@ -1025,7 +1045,7 @@ gfx::Texture GraphicsBackend::create_texture(u32 width, u32 height) {
     view_info.image                       = image;
     view_info.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
     view_info.format                      = format;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.aspectMask = aspect;
     view_info.subresourceRange.levelCount = 1;
     view_info.subresourceRange.layerCount = 1;
 
@@ -1038,14 +1058,14 @@ gfx::Texture GraphicsBackend::create_texture(u32 width, u32 height) {
                                 image,
                                 view_info.subresourceRange.aspectMask,
                                 VK_IMAGE_LAYOUT_UNDEFINED,
-                                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                layout,
                                 0,
                                 0,
                                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
     });
 
-    return gfx::Texture(image, view, format, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    return gfx::Texture(image, view, format, layout);
 }
 
 void GraphicsBackend::transition_image_layout(VkCommandBuffer      cmd,

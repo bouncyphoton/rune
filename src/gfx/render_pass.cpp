@@ -79,6 +79,7 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
         logger.verbose("info for shader: '%'", shaders[s].path);
 
         // inputs
+        /*
         u32 num_inputs;
         spvReflectEnumerateInputVariables(&modules[s], &num_inputs, nullptr);
         std::vector<SpvReflectInterfaceVariable*> inputs(num_inputs);
@@ -87,19 +88,24 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
         for (u32 i = 0; i < num_inputs; ++i) {
             SpvReflectInterfaceVariable* var = inputs[i];
 
-            logger.verbose(" - input %", var->name);
+            logger.verbose(" - input % @ %", var->name, var->location);
         }
+         */
 
-        // outputs
-        u32 num_outputs;
-        spvReflectEnumerateOutputVariables(&modules[s], &num_outputs, nullptr);
-        std::vector<SpvReflectInterfaceVariable*> outputs(num_outputs);
-        spvReflectEnumerateOutputVariables(&modules[s], &num_outputs, outputs.data());
-        logger.verbose("- % output%:", num_outputs, num_outputs == 1 ? "" : "s");
-        for (u32 i = 0; i < num_outputs; ++i) {
-            SpvReflectInterfaceVariable* var = outputs[i];
+        if (shaders[s].stage == VK_SHADER_STAGE_FRAGMENT_BIT) {
+            // fragment shader outputs
+            u32 num_outputs;
+            spvReflectEnumerateOutputVariables(&modules[s], &num_outputs, nullptr);
+            std::vector<SpvReflectInterfaceVariable*> outputs(num_outputs);
+            spvReflectEnumerateOutputVariables(&modules[s], &num_outputs, outputs.data());
+            logger.verbose("- % output%:", num_outputs, num_outputs == 1 ? "" : "s");
+            for (u32 i = 0; i < num_outputs; ++i) {
+                SpvReflectInterfaceVariable* var = outputs[i];
 
-            logger.verbose(" - output %", var->name);
+                if (var->location != (~0u)) {
+                    fragment_shader_outputs_[var->name] = var->location;
+                }
+            }
         }
 
         // descriptor sets
