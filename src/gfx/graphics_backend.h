@@ -163,7 +163,7 @@ class GraphicsBackend {
   private:
     // TODO: config option?
     static constexpr u32 NUM_FRAMES_IN_FLIGHT = 2;
-    static constexpr u32 MAX_UNIQUE_VERTICES  = 1000;
+    static constexpr u32 MAX_UNIQUE_VERTICES  = 10000000;
     static constexpr u32 MAX_OBJECTS          = 1000;
     static constexpr u32 MAX_DRAWS            = 1000;
 

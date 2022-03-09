@@ -10,3 +10,6 @@
 [submodule "external/glm"]
 	path = external/glm
 	url = https://github.com/bouncyphoton/glm
+[submodule "external/tinyobjloader"]
+	path = external/tinyobjloader
+	url = https://www.github.com/bouncyphoton/tinyobjloader
