@@ -13,3 +13,6 @@
 [submodule "external/tinyobjloader"]
 	path = external/tinyobjloader
 	url = https://www.github.com/bouncyphoton/tinyobjloader
+[submodule "external/entt"]
+	path = external/entt
+	url = https://github.com/skypjack/entt.git

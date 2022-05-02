@@ -955,7 +955,7 @@ VkDescriptorSet GraphicsBackend::get_descriptor_set(VkDescriptorSetLayout layout
     DescriptorSetCache& cache = get_current_frame().get_descriptor_set_cache(layout);
 
     if (cache.empty()) {
-        core_.get_logger().info("allocating new descriptor set");
+        core_.get_logger().info("allocating new descriptor set for frame %", current_frame_);
 
         VkDescriptorSetAllocateInfo alloc_info = {};
         alloc_info.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;

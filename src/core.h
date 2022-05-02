@@ -6,6 +6,8 @@
 #include "platform.h"
 #include "renderer.h"
 
+#include <entt/entt.hpp>
+
 #include <optional>
 
 namespace rune {
@@ -37,6 +39,8 @@ class Core final {
     Config   config_;
     Platform platform_;
     Renderer renderer_;
+
+    entt::registry registry_;
 
     bool running_ = true;
 };

@@ -8,15 +8,13 @@
 namespace rune {
 
 struct Model {
-    using MeshData = std::vector<Vertex>;
+    explicit Model(const std::vector<gfx::Mesh>& meshes = {}) : meshes_(meshes) {}
 
-    explicit Model(Core& core, const std::vector<MeshData>& meshes) : core_(core) {
-        for (const auto& mesh_data : meshes) {
-            meshes_.emplace_back(core_.get_platform().get_graphics_backend().load_mesh(mesh_data));
+    void add_to_scene(Renderer& renderer, glm::mat4 transformation) const {
+        if (meshes_.empty()) {
+            return;
         }
-    }
 
-    void add_to_scene(Renderer& renderer, glm::mat4 transformation) {
         RenderObject robj = {};
         robj.model_matrix = transformation;
 
@@ -27,7 +25,6 @@ struct Model {
     }
 
   private:
-    Core&                  core_;
     std::vector<gfx::Mesh> meshes_;
 };
 
@@ -51,25 +48,25 @@ static Model load_model(Core& core, const std::string& path) {
         core.get_logger().fatal("failed to load model: '%'", path);
     }
 
-    std::vector<std::vector<Vertex>> meshes;
+    std::vector<std::vector<Vertex>> mesh_data;
 
     // go over shapes
-    for (u32 s = 0; s < shapes.size(); ++s) {
+    for (auto& shape : shapes) {
         // go over faces
         u32 index_offset = 0;
-        for (u32 f = 0; f < shapes[s].mesh.num_face_vertices.size(); ++f) {
-            u32 fv = shapes[s].mesh.num_face_vertices[f];
+        for (u32 f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+            u32 fv = shape.mesh.num_face_vertices[f];
             rune_assert(core, fv == 3); // must be triangle
 
-            i32 mat_id = shapes[s].mesh.material_ids[f] + 1;
-            if (mat_id >= meshes.size()) {
-                meshes.resize(mat_id + 1);
+            i32 mat_id = shape.mesh.material_ids[f] + 1;
+            if (mat_id >= mesh_data.size()) {
+                mesh_data.resize(mat_id + 1);
             }
-            auto& mesh = meshes[mat_id];
+            auto& mesh = mesh_data[mat_id];
 
             // loop over vertices
             for (u32 v = 0; v < fv; ++v) {
-                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+                tinyobj::index_t idx = shape.mesh.indices[index_offset + v];
 
                 tinyobj::real_t x = attrib.vertices[3 * size_t(idx.vertex_index) + 0];
                 tinyobj::real_t y = attrib.vertices[3 * size_t(idx.vertex_index) + 1];
@@ -85,15 +82,35 @@ static Model load_model(Core& core, const std::string& path) {
             }
             index_offset += fv;
 
-            // also material here
+            // also, material here
             // shapes[s].mesh.material_ids[f];
         }
     }
 
-    core.get_logger().info("loaded % meshes for model '%'", meshes.size(), path);
+    core.get_logger().info("loaded % meshes for model '%'", mesh_data.size(), path);
 
-    return Model(core, meshes);
+    std::vector<gfx::Mesh> meshes;
+    meshes.reserve(mesh_data.size());
+    for (const std::vector<Vertex>& vertices : mesh_data) {
+        meshes.emplace_back(core.get_platform().get_graphics_backend().load_mesh(vertices));
+    }
+
+    return Model(meshes);
 }
+
+struct Transformation {
+    Transformation() : position(glm::vec3(0)), rotation(glm::vec3(0)), scale(glm::vec3(1)) {}
+
+    glm::vec3 position;
+    glm::vec3 rotation;
+    glm::vec3 scale;
+
+    [[nodiscard]] glm::mat4 get_matrix() const {
+        return glm::translate(glm::mat4(1), position) * glm::rotate(glm::mat4(1), rotation.x, glm::vec3(1, 0, 0)) *
+               glm::rotate(glm::mat4(1), rotation.y, glm::vec3(0, 1, 0)) *
+               glm::rotate(glm::mat4(1), rotation.z, glm::vec3(0, 0, 1)) * glm::scale(glm::mat4(1), scale);
+    }
+};
 
 Core::Core() : config_(*this), platform_(*this), renderer_(*this) {
     logger_.info("operating system: %", consts::os_name);
@@ -102,9 +119,9 @@ Core::Core() : config_(*this), platform_(*this), renderer_(*this) {
 
 void Core::run() {
     f32    aspect_ratio = (f32)config_.get_window_width() / (f32)config_.get_window_height();
-    Camera camera(glm::half_pi<f32>(), aspect_ratio, 0.01f, 100.0f, glm::vec3(0), glm::vec3(0, 0, -1));
+    Camera camera(glm::half_pi<f32>(), aspect_ratio, 0.01f, 100.0f);
 
-    // counter clockwise winding order
+    // counterclockwise winding order
 
     Vertex triangle_vertices[] = {
         Vertex{-0.5f, -0.5f, 0, 0, 1},
@@ -122,42 +139,68 @@ void Core::run() {
 
     Model dragon = load_model(*this, "../data/models/dragon.obj");
 
+    // Add dragons
+    i32 num_meshes = 20;
+    for (i32 i = 0; i < num_meshes; ++i) {
+        const auto entity = registry_.create();
+        registry_.emplace<Transformation>(entity, Transformation());
+        registry_.emplace<Model>(entity, dragon);
+    }
+
     while (running_) {
         platform_.update();
-
-        // do updates here
+        f32 dt   = platform_.get_delta_time();
         f32 time = (f32)glfwGetTime();
-        camera.set_position(glm::vec3(std::sin(time), 0, 0));
+
+        // player camera
+
+        f32 move_speed = 1.0f * dt;
+        if (platform_.is_key_down(GLFW_KEY_W)) {
+            camera.add_position(camera.get_forward() * move_speed);
+        }
+        if (platform_.is_key_down(GLFW_KEY_S)) {
+            camera.add_position(camera.get_forward() * -move_speed);
+        }
+        if (platform_.is_key_down(GLFW_KEY_D)) {
+            camera.add_position(camera.get_right() * move_speed);
+        }
+        if (platform_.is_key_down(GLFW_KEY_A)) {
+            camera.add_position(camera.get_right() * -move_speed);
+        }
+        if (platform_.is_key_down(GLFW_KEY_SPACE)) {
+            camera.add_position(glm::vec3(0, move_speed, 0));
+        }
+        if (platform_.is_key_down(GLFW_KEY_LEFT_CONTROL)) {
+            camera.add_position(glm::vec3(0, -move_speed, 0));
+        }
+        if (platform_.is_mouse_grabbed()) {
+            camera.add_pitch(platform_.get_mouse_delta().y * 0.001f);
+            camera.add_yaw(platform_.get_mouse_delta().x * 0.001f);
+        }
+        if (platform_.is_key_pressed(GLFW_KEY_TAB)) {
+            platform_.set_mouse_grabbed(!platform_.is_mouse_grabbed());
+        }
         renderer_.set_camera(camera);
 
-        i32 num_meshes = 20;
-        for (i32 i = 0; i < num_meshes; ++i) {
-            // obj.mesh = (i < num_meshes / 2) ? triangle : square;
-            //obj.mesh = (i % 2 == 0) ? triangle : square;
+        // render
 
-            /*
-            obj.model_matrix = ;
-            obj.mesh_id      = ;
-            obj.material_id  = ;
-            */
-
-            glm::mat4 transformation = glm::mat4(1);
+        i32 i = 0;
+        for (auto [entity, transformation, model] : registry_.view<Transformation, const Model>().each()) {
+            const f32 t        = (0.25f * time + float(i) / float(num_meshes - 1)) * glm::two_pi<f32>();
+            const f32 distance = 0.75f;
+            const f32 scale    = std::abs(std::sin(t));
 
             if (i == 0) {
-                transformation = glm::translate(glm::mat4(1), glm::vec3(0, 0, -1));
+                transformation.position = glm::vec3(0, 0, -1);
             } else {
-                const f32 t        = (0.25f * time + float(i) / float(num_meshes - 1)) * glm::two_pi<f32>();
-                const f32 distance = 0.75f;
-                const f32 scale    = std::abs(std::sin(t));
-                glm::vec3 pos =
+                transformation.position =
                     distance * glm::vec3(std::cos(t), std::sin(t) * 0.5f, -0.5f * std::abs(std::cos(t)) - 1);
-
-                transformation = glm::translate(glm::mat4(1), pos) * glm::scale(glm::mat4(1), glm::vec3(scale));
+                transformation.scale = glm::vec3(scale);
             }
 
-            dragon.add_to_scene(renderer_, transformation);
+            model.add_to_scene(renderer_, transformation.get_matrix());
+            ++i;
         }
-
         renderer_.render();
     }
 }

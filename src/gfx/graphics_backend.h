@@ -29,7 +29,8 @@ struct ObjectData {
 
 struct Mesh {
     Mesh() : Mesh(0, 0) {}
-    Mesh(u32 first_vertex, u32 num_vertices) : first_vertex_(first_vertex), num_vertices_(num_vertices) {}
+    Mesh(u32 first_vertex, u32 num_vertices)
+        : first_vertex_(first_vertex), num_vertices_(num_vertices) {} // NOLINT(cppcoreguidelines-pro-type-member-init)
 
     [[nodiscard]] u32 get_first_vertex() const {
         return first_vertex_;
