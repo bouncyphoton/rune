@@ -11,7 +11,7 @@ layout (location = 0) in VertexData {
     float object_id;
 } FS_IN;
 
-layout (set = 0, binding = 3) uniform sampler2D u_textures[];
+layout (set = 1, binding = 3) uniform sampler2D u_textures[];
 
 void main() {
 #if DRAW_OBJECT_ID
