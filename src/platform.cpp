@@ -7,10 +7,30 @@
 
 namespace rune {
 
-enum class KeyState {
-    UP, PRESSED, DOWN
+enum class KeyState
+{
+    UP,
+    PRESSED,
+    DOWN,
+    RELEASED
 };
 static std::unordered_map<int, KeyState> g_key_states;
+static void                              process_key(int key, int action) {
+    switch (action) {
+    case GLFW_PRESS:
+        if (g_key_states[key] == KeyState::UP) {
+            g_key_states[key] = KeyState::PRESSED;
+        }
+        break;
+    case GLFW_RELEASE:
+        if (g_key_states[key] != KeyState::UP) {
+            g_key_states[key] = KeyState::RELEASED;
+        }
+        break;
+    }
+}
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {}
+static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {}
 
 Platform::Platform(Core& core) : core_(core) {
     Config& conf = core.get_config();
@@ -31,16 +51,12 @@ Platform::Platform(Core& core) : core_(core) {
     rune_assert(core_, window_ != nullptr);
 
     glfwSetKeyCallback(window_, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
-        switch (action) {
-        case GLFW_PRESS:
-            if (g_key_states[key] == KeyState::UP) {
-                g_key_states[key] = KeyState::PRESSED;
-            }
-            break;
-        case GLFW_RELEASE:
-            g_key_states[key] = KeyState::UP;
-            break;
-        }
+        //
+        process_key(key, action);
+    });
+    glfwSetMouseButtonCallback(window_, [](GLFWwindow* window, int key, int action, int mods) {
+        //
+        process_key(key, action);
     });
 
     graphics_.emplace(core_, window_);
@@ -55,6 +71,8 @@ void Platform::update() {
     for (auto& [key, state] : g_key_states) {
         if (state == KeyState::PRESSED) {
             state = KeyState::DOWN;
+        } else if (state == KeyState::RELEASED) {
+            state = KeyState::UP;
         }
     }
 
@@ -65,15 +83,20 @@ void Platform::update() {
     }
 
     calculate_delta_time();
-    update_input();
+    update_mouse();
 }
 
 bool Platform::is_key_down(int key) const {
-    return g_key_states[key] != KeyState::UP;
+    KeyState state = g_key_states[key];
+    return state == KeyState::DOWN || state == KeyState::PRESSED;
 }
 
 bool Platform::is_key_pressed(int key) const {
     return g_key_states[key] == KeyState::PRESSED;
+}
+
+bool Platform::is_key_released(int key) const {
+    return g_key_states[key] == KeyState::RELEASED;
 }
 
 bool Platform::is_mouse_grabbed() const {
@@ -97,7 +120,7 @@ void Platform::calculate_delta_time() {
     delta_time_  = (f32)(diff_ns / (f64)std::nano::den);
 }
 
-void Platform::update_input() {
+void Platform::update_mouse() {
     double x, y;
     glfwGetCursorPos(window_, &x, &y);
 

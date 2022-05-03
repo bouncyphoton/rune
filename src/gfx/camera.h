@@ -46,7 +46,7 @@ class Camera {
     }
 
     [[nodiscard]] glm::vec3 get_right() const {
-        return glm::cross(get_forward(), consts::UP);
+        return normalize(glm::cross(get_forward(), consts::UP));
     }
 
     [[nodiscard]] glm::vec3 get_up() const {

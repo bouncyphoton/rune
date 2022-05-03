@@ -40,11 +40,11 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     instance_info.ppEnabledExtensionNames = glfwGetRequiredInstanceExtensions(&instance_info.enabledExtensionCount);
 
     vk_check(vkCreateInstance(&instance_info, nullptr, &instance_));
-    cleanup_.emplace([=]() { vkDestroyInstance(instance_, nullptr); });
+    cleanup_.emplace([=, this]() { vkDestroyInstance(instance_, nullptr); });
 
     // create surface
     vk_check(glfwCreateWindowSurface(instance_, window, nullptr, &surface_));
-    cleanup_.emplace([=]() { vkDestroySurfaceKHR(instance_, surface_, nullptr); });
+    cleanup_.emplace([=, this]() { vkDestroySurfaceKHR(instance_, surface_, nullptr); });
 
     choose_physical_device();
     create_logical_device();
@@ -56,7 +56,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     vma_ci.device                 = device_;
     vma_ci.instance               = instance_;
     vk_check(vmaCreateAllocator(&vma_ci, &allocator_));
-    cleanup_.emplace([=] { vmaDestroyAllocator(allocator_); });
+    cleanup_.emplace([=, this] { vmaDestroyAllocator(allocator_); });
 
     // create command pool, single threaded rendering for now
     VkCommandPoolCreateInfo command_pool_create_info = {};
@@ -64,7 +64,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     command_pool_create_info.queueFamilyIndex        = graphics_family_index_;
     command_pool_create_info.flags                   = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     vk_check(vkCreateCommandPool(device_, &command_pool_create_info, nullptr, &command_pool_));
-    cleanup_.emplace([=] { vkDestroyCommandPool(device_, command_pool_, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyCommandPool(device_, command_pool_, nullptr); });
 
     create_swapchain();
 
@@ -76,7 +76,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     descriptor_pool_create_info.poolSizeCount              = std::size(sizes);
     descriptor_pool_create_info.pPoolSizes                 = sizes;
     vk_check(vkCreateDescriptorPool(device_, &descriptor_pool_create_info, nullptr, &descriptor_pool_));
-    cleanup_.emplace([=] { vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr); });
 
     // create per-frame data
     for (PerFrame& frame : frames_) {
@@ -89,7 +89,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         VkCommandBuffer cmd_buf;
         vk_check(vkAllocateCommandBuffers(device_, &cmd_buf_alloc_info, &cmd_buf));
         frame.command_buffer_ = cmd_buf;
-        cleanup_.emplace([=] { vkFreeCommandBuffers(device_, command_pool_, 1, &cmd_buf); });
+        cleanup_.emplace([=, this] { vkFreeCommandBuffers(device_, command_pool_, 1, &cmd_buf); });
 
         // TODO: experiment with different memory types
         frame.object_data_ = create_buffer_gpu(sizeof(ObjectData) * MAX_OBJECTS,
@@ -116,7 +116,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         frame.image_available_ = img_available;
         frame.render_finished_ = render_finished;
         frame.in_flight_       = in_flight;
-        cleanup_.emplace([=] {
+        cleanup_.emplace([=, this] {
             vkDestroyFence(device_, in_flight, nullptr);
             vkDestroySemaphore(device_, render_finished, nullptr);
             vkDestroySemaphore(device_, img_available, nullptr);
@@ -484,7 +484,7 @@ void GraphicsBackend::create_logical_device() {
         } else {
             vk_check(create_device_result);
             device_features_ = feature_set;
-            cleanup_.emplace([=]() { vkDestroyDevice(device_, nullptr); });
+            cleanup_.emplace([=, this]() { vkDestroyDevice(device_, nullptr); });
             break;
         }
     }
@@ -595,7 +595,7 @@ void GraphicsBackend::create_swapchain() {
     swapchain_create_info.clipped               = VK_TRUE; // Allow for swapchain to not own all of its pixels
 
     vk_check(vkCreateSwapchainKHR(device_, &swapchain_create_info, nullptr, &swapchain_));
-    cleanup_.emplace([=]() { vkDestroySwapchainKHR(device_, swapchain_, nullptr); });
+    cleanup_.emplace([=, this]() { vkDestroySwapchainKHR(device_, swapchain_, nullptr); });
 
     u32 num_swapchain_images;
     vk_check(vkGetSwapchainImagesKHR(device_, swapchain_, &num_swapchain_images, nullptr));
@@ -617,7 +617,7 @@ void GraphicsBackend::create_swapchain() {
         VkImageView view;
         vk_check(vkCreateImageView(device_, &image_view_create_info, nullptr, &view));
         swapchain_image_views_[i] = view;
-        cleanup_.emplace([=]() { vkDestroyImageView(device_, view, nullptr); });
+        cleanup_.emplace([=, this]() { vkDestroyImageView(device_, view, nullptr); });
     }
 }
 
@@ -673,7 +673,7 @@ GraphicsBackend::create_buffer_gpu(VkDeviceSize size, VkBufferUsageFlags buffer_
                              &buffer.allocation_info));
 
     if (policy == BufferDestroyPolicy::AUTOMATIC_DESTROY) {
-        cleanup_.emplace([=] { destroy_buffer(buffer); });
+        cleanup_.emplace([=, this] { destroy_buffer(buffer); });
     }
 
     return buffer;
@@ -796,7 +796,7 @@ VkRenderPass GraphicsBackend::create_render_pass(const std::vector<VkFormat>& fo
 
     VkRenderPass render_pass;
     vk_check(vkCreateRenderPass(device_, &render_pass_create_info, nullptr, &render_pass));
-    cleanup_.emplace([=] { vkDestroyRenderPass(device_, render_pass, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyRenderPass(device_, render_pass, nullptr); });
     return render_pass;
 }
 
@@ -814,7 +814,7 @@ VkFramebuffer GraphicsBackend::create_framebuffer(VkRenderPass                  
 
     VkFramebuffer framebuffer;
     vk_check(vkCreateFramebuffer(device_, &framebuffer_create_info, nullptr, &framebuffer));
-    cleanup_.emplace([=] { vkDestroyFramebuffer(device_, framebuffer, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyFramebuffer(device_, framebuffer, nullptr); });
 
     return framebuffer;
 }
@@ -822,13 +822,13 @@ VkFramebuffer GraphicsBackend::create_framebuffer(VkRenderPass                  
 VkDescriptorSetLayout GraphicsBackend::create_descriptor_set_layout(const VkDescriptorSetLayoutCreateInfo& set_info) {
     VkDescriptorSetLayout layout;
     vkCreateDescriptorSetLayout(device_, &set_info, nullptr, &layout);
-    cleanup_.emplace([=] { vkDestroyDescriptorSetLayout(device_, layout, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyDescriptorSetLayout(device_, layout, nullptr); });
     return layout;
 }
 VkPipelineLayout GraphicsBackend::create_pipeline_layout(const VkPipelineLayoutCreateInfo& pipeline_layout_info) {
     VkPipelineLayout pipeline_layout;
     vk_check(vkCreatePipelineLayout(device_, &pipeline_layout_info, nullptr, &pipeline_layout));
-    cleanup_.emplace([=] { vkDestroyPipelineLayout(device_, pipeline_layout, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyPipelineLayout(device_, pipeline_layout, nullptr); });
     return pipeline_layout;
 }
 
@@ -940,7 +940,7 @@ VkPipeline GraphicsBackend::create_graphics_pipeline(const std::vector<ShaderInf
 
     VkPipeline pipeline;
     vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &graphics_pipeline_ci, nullptr, &pipeline));
-    cleanup_.emplace([=] { vkDestroyPipeline(device_, pipeline, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyPipeline(device_, pipeline, nullptr); });
 
     for (VkPipelineShaderStageCreateInfo& stage : stages) {
         vkDestroyShaderModule(device_, stage.module, nullptr);
@@ -1038,7 +1038,7 @@ gfx::Texture GraphicsBackend::create_texture(VkFormat format, u32 width, u32 hei
     VkImage       image;
     VmaAllocation allocation;
     vk_check(vmaCreateImage(allocator_, &image_info, &alloc_info, &image, &allocation, nullptr));
-    cleanup_.emplace([=] { vmaDestroyImage(allocator_, image, allocation); });
+    cleanup_.emplace([=, this] { vmaDestroyImage(allocator_, image, allocation); });
 
     VkImageViewCreateInfo view_info       = {};
     view_info.sType                       = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1051,7 +1051,7 @@ gfx::Texture GraphicsBackend::create_texture(VkFormat format, u32 width, u32 hei
 
     VkImageView view;
     vk_check(vkCreateImageView(device_, &view_info, nullptr, &view));
-    cleanup_.emplace([=] { vkDestroyImageView(device_, view, nullptr); });
+    cleanup_.emplace([=, this] { vkDestroyImageView(device_, view, nullptr); });
 
     one_time_submit(graphics_queue_, [&](VkCommandBuffer cmd) {
         transition_image_layout(cmd,

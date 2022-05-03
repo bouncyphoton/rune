@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 
 #define TINYOBJLOADER_IMPLEMENTATION
+#include <filesystem>
 #include <tiny_obj_loader.h>
 
 namespace rune {
@@ -62,7 +63,7 @@ static Model load_model(Core& core, const std::string& path) {
             if (mat_id >= mesh_data.size()) {
                 mesh_data.resize(mat_id + 1);
             }
-            auto& mesh = mesh_data[mat_id];
+            auto& vertices = mesh_data[mat_id];
 
             // loop over vertices
             for (u32 v = 0; v < fv; ++v) {
@@ -78,12 +79,16 @@ static Model load_model(Core& core, const std::string& path) {
                     ty = attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
                 }
 
-                mesh.emplace_back(Vertex{x, y, z, tx, ty});
+                tinyobj::real_t nx = attrib.normals[3 * size_t(idx.normal_index) + 0];
+                tinyobj::real_t ny = attrib.normals[3 * size_t(idx.normal_index) + 1];
+                tinyobj::real_t nz = attrib.normals[3 * size_t(idx.normal_index) + 2];
+
+                vertices.emplace_back(Vertex{{x, y, z}, {nx, ny, nz}, {tx, ty}});
             }
             index_offset += fv;
 
             // also, material here
-            // shapes[s].mesh.material_ids[f];
+            // shapes[s].vertices.material_ids[f];
         }
     }
 
@@ -119,42 +124,41 @@ Core::Core() : config_(*this), platform_(*this), renderer_(*this) {
 
 void Core::run() {
     f32    aspect_ratio = (f32)config_.get_window_width() / (f32)config_.get_window_height();
-    Camera camera(glm::half_pi<f32>(), aspect_ratio, 0.01f, 100.0f);
+    Camera camera(glm::half_pi<f32>(), aspect_ratio, 0.01f, 100.0f, glm::vec3(0, 1, 0));
 
-    // counterclockwise winding order
+    std::vector<Model> models;
+    for (const auto& entry : std::filesystem::directory_iterator("../data/models/retro_urban_kit/obj")) {
+        if (entry.path().extension() != ".obj") continue;
+        models.emplace_back(load_model(*this, entry.path().string()));
+    }
 
-    Vertex triangle_vertices[] = {
-        Vertex{-0.5f, -0.5f, 0, 0, 1},
-        Vertex{0.5f, -0.5f, 0, 1, 1},
-        Vertex{0, 0.5f, 0, 0.5f, 0},
-    };
-    gfx::Mesh triangle = platform_.get_graphics_backend().load_mesh(triangle_vertices, std::size(triangle_vertices));
+    // Add models
+    constexpr i32 size = 5;
+    constexpr i32 side_length = size * 2 + 1;
+    for (i32 x = -size; x <= size; ++x) {
+        for (i32 z = -size; z <= size; ++z) {
+            Transformation transformation;
+            transformation.position = glm::vec3(x, 0, z);
 
-    Vertex    bl                = {-0.5f, -0.5f, 0, 0, 0};
-    Vertex    br                = {0.5f, -0.5f, 0, 1, 0};
-    Vertex    tr                = {0.5f, 0.5f, 0, 1, 1};
-    Vertex    tl                = {-0.5f, 0.5f, 0, 0, 1};
-    Vertex    square_vertices[] = {bl, br, tr, bl, tr, tl};
-    gfx::Mesh square = platform_.get_graphics_backend().load_mesh(square_vertices, std::size(square_vertices));
-
-    Model dragon = load_model(*this, "../data/models/dragon.obj");
-
-    // Add dragons
-    i32 num_meshes = 20;
-    for (i32 i = 0; i < num_meshes; ++i) {
-        const auto entity = registry_.create();
-        registry_.emplace<Transformation>(entity, Transformation());
-        registry_.emplace<Model>(entity, dragon);
+            const auto entity = registry_.create();
+            registry_.emplace<Transformation>(entity, transformation);
+            registry_.emplace<Model>(entity, models[(x * side_length + z) % models.size()]);
+        }
     }
 
     while (running_) {
         platform_.update();
-        f32 dt   = platform_.get_delta_time();
-        f32 time = (f32)glfwGetTime();
+        if (platform_.is_key_down(GLFW_KEY_ESCAPE)) {
+            stop();
+        }
+
+        f32 dt = platform_.get_delta_time();
 
         // player camera
 
-        f32 move_speed = 1.0f * dt;
+        constexpr f32 slow_speed = 1.0f;
+        constexpr f32 fast_speed = 10.0f;
+        f32           move_speed = dt * (platform_.is_key_down(GLFW_KEY_LEFT_SHIFT) ? fast_speed : slow_speed);
         if (platform_.is_key_down(GLFW_KEY_W)) {
             camera.add_position(camera.get_forward() * move_speed);
         }
@@ -173,33 +177,22 @@ void Core::run() {
         if (platform_.is_key_down(GLFW_KEY_LEFT_CONTROL)) {
             camera.add_position(glm::vec3(0, -move_speed, 0));
         }
+        if (platform_.is_key_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+            platform_.set_mouse_grabbed(true);
+        }
+        if (platform_.is_key_released(GLFW_MOUSE_BUTTON_RIGHT)) {
+            platform_.set_mouse_grabbed(false);
+        }
         if (platform_.is_mouse_grabbed()) {
             camera.add_pitch(platform_.get_mouse_delta().y * 0.001f);
             camera.add_yaw(platform_.get_mouse_delta().x * 0.001f);
-        }
-        if (platform_.is_key_pressed(GLFW_KEY_TAB)) {
-            platform_.set_mouse_grabbed(!platform_.is_mouse_grabbed());
         }
         renderer_.set_camera(camera);
 
         // render
 
-        i32 i = 0;
         for (auto [entity, transformation, model] : registry_.view<Transformation, const Model>().each()) {
-            const f32 t        = (0.25f * time + float(i) / float(num_meshes - 1)) * glm::two_pi<f32>();
-            const f32 distance = 0.75f;
-            const f32 scale    = std::abs(std::sin(t));
-
-            if (i == 0) {
-                transformation.position = glm::vec3(0, 0, -1);
-            } else {
-                transformation.position =
-                    distance * glm::vec3(std::cos(t), std::sin(t) * 0.5f, -0.5f * std::abs(std::cos(t)) - 1);
-                transformation.scale = glm::vec3(scale);
-            }
-
             model.add_to_scene(renderer_, transformation.get_matrix());
-            ++i;
         }
         renderer_.render();
     }

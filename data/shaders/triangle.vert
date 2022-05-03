@@ -2,6 +2,7 @@
 
 struct Vertex {
     vec3 position;
+    vec3 normal;
     vec2 uv;
 };
 
@@ -10,6 +11,7 @@ struct ObjectData {
 };
 
 layout (location = 0) out VertexData {
+    vec3 normal;
     vec2 uv;
     float object_id;
 } VS_OUT;
@@ -28,12 +30,17 @@ layout (push_constant) uniform PushConstants
 } u_push;
 
 Vertex get_vertex(uint id) {
+    int num_floats = 3 + 3 + 2;
+
     Vertex v;
-    v.position.x = u_vertices.data[id * 5 + 0];
-    v.position.y = u_vertices.data[id * 5 + 1];
-    v.position.z = u_vertices.data[id * 5 + 2];
-    v.uv.x = u_vertices.data[id * 5 + 3];
-    v.uv.y = u_vertices.data[id * 5 + 4];
+    v.position.x = u_vertices.data[id * num_floats + 0];
+    v.position.y = u_vertices.data[id * num_floats + 1];
+    v.position.z = u_vertices.data[id * num_floats + 2];
+    v.normal.x   = u_vertices.data[id * num_floats + 3];
+    v.normal.y   = u_vertices.data[id * num_floats + 4];
+    v.normal.z   = u_vertices.data[id * num_floats + 5];
+    v.uv.x       = u_vertices.data[id * num_floats + 6];
+    v.uv.y       = u_vertices.data[id * num_floats + 7];
     return v;
 }
 
@@ -44,7 +51,9 @@ void main() {
     ObjectData o = u_object_data.data[object_id];
 
     vec4 position = u_push.vp * o.model_matrix * vec4(v.position, 1);
-    VS_OUT.uv = v.uv;
+
+    VS_OUT.normal    = v.normal;
+    VS_OUT.uv        = v.uv;
     VS_OUT.object_id = object_id;
 
     gl_Position = position;
