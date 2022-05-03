@@ -14,16 +14,18 @@
 
 namespace rune::gfx {
 
-constexpr const char*              g_instance_layers[]              = {"VK_LAYER_KHRONOS_validation"};
-constexpr const char*              g_required_device_extensions[]   = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+constexpr const char* g_instance_layers[] = {"VK_LAYER_KHRONOS_validation"};
+
+constexpr const char* g_required_device_extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+                                                        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME};
+
 constexpr VkPhysicalDeviceFeatures g_possible_device_feature_sets[] = {
     // preferred/optimal feature set
-    VkPhysicalDeviceFeatures{
-        .multiDrawIndirect         = VK_TRUE,
-        .drawIndirectFirstInstance = VK_TRUE,
-    },
+    VkPhysicalDeviceFeatures{.multiDrawIndirect                      = VK_TRUE,
+                             .drawIndirectFirstInstance              = VK_TRUE,
+                             .shaderSampledImageArrayDynamicIndexing = VK_TRUE},
     // acceptable feature set
-    VkPhysicalDeviceFeatures{.drawIndirectFirstInstance = VK_TRUE}};
+    VkPhysicalDeviceFeatures{.drawIndirectFirstInstance = VK_TRUE, .shaderSampledImageArrayDynamicIndexing = VK_TRUE}};
 
 GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     // create instance
@@ -69,7 +71,9 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     create_swapchain();
 
     // create descriptor pool
-    VkDescriptorPoolSize       sizes[]                     = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4}};
+    VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4},
+                                    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 * NUM_FRAMES_IN_FLIGHT}};
+
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = {};
     descriptor_pool_create_info.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptor_pool_create_info.maxSets                    = 4; // TODO
@@ -127,6 +131,22 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     unified_vertex_buffer_ = create_buffer_gpu(sizeof(Vertex) * MAX_UNIQUE_VERTICES,
                                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                BufferDestroyPolicy::AUTOMATIC_DESTROY);
+
+    {
+        VkSamplerCreateInfo sampler_create_info = {};
+        sampler_create_info.sType               = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampler_create_info.magFilter           = VK_FILTER_NEAREST;
+        sampler_create_info.minFilter           = VK_FILTER_NEAREST;
+        sampler_create_info.addressModeU        = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_create_info.addressModeV        = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_create_info.addressModeW        = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler_create_info.maxAnisotropy       = 1.0f;
+        sampler_create_info.mipmapMode          = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+
+        vk_check(vkCreateSampler(device_, &sampler_create_info, nullptr, &nearest_sampler_));
+        cleanup_.emplace([=, this] { vkDestroySampler(device_, nearest_sampler_, nullptr); });
+        // TODO: linear sampler
+    }
 
     // todo: swapchain resizing
 }
@@ -268,6 +288,9 @@ void GraphicsBackend::update_object_data(const ObjectData* data, u32 num_objects
 }
 
 Mesh GraphicsBackend::load_mesh(const Vertex* data, u32 num_vertices) {
+    rune_assert(core_, num_vertices > 0);
+    rune_assert(core_, data);
+
     // Make sure we have room
     if (num_vertices_in_buffer_ + num_vertices > MAX_UNIQUE_VERTICES) {
         core_.get_logger().warn("could not load mesh with % vertices. current: %, max: %",
@@ -1002,7 +1025,136 @@ bool GraphicsBackend::is_stencil_format(VkFormat format) {
     }
 }
 
-gfx::Texture GraphicsBackend::create_texture(VkFormat format, u32 width, u32 height) {
+gfx::Texture GraphicsBackend::create_texture(VkImageCreateInfo     image_create_info,
+                                             VkImageViewCreateInfo image_view_create_info,
+                                             VkImageLayout         layout,
+                                             const void*           data,
+                                             VkDeviceSize          size) {
+    VmaAllocationCreateInfo alloc_info = {};
+    alloc_info.usage                   = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    image_create_info.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+    VkImage       image;
+    VmaAllocation allocation;
+    vk_check(vmaCreateImage(allocator_, &image_create_info, &alloc_info, &image, &allocation, nullptr));
+    cleanup_.emplace([=, this] { vmaDestroyImage(allocator_, image, allocation); });
+
+    if (size > 0) {
+        // create staging buffer
+        VkBufferCreateInfo staging_buffer_create_info = {};
+        staging_buffer_create_info.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        staging_buffer_create_info.size               = size;
+        staging_buffer_create_info.usage              = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+        staging_buffer_create_info.sharingMode        = VK_SHARING_MODE_EXCLUSIVE;
+
+        VmaAllocationCreateInfo staging_allocation_create_info = {};
+        staging_allocation_create_info.usage                   = VMA_MEMORY_USAGE_CPU_ONLY;
+        staging_allocation_create_info.flags                   = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        VkBuffer          staging_buffer;
+        VmaAllocation     staging_allocation;
+        VmaAllocationInfo staging_allocation_info;
+        vk_check(vmaCreateBuffer(allocator_,
+                                 &staging_buffer_create_info,
+                                 &staging_allocation_create_info,
+                                 &staging_buffer,
+                                 &staging_allocation,
+                                 &staging_allocation_info));
+        std::memcpy(staging_allocation_info.pMappedData, data, static_cast<size_t>(size));
+
+        // copy data into image
+        one_time_submit(graphics_queue_, [&](VkCommandBuffer cmd) {
+            // prepare image to be data transferred to
+            transition_image_layout(cmd,
+                                    image,
+                                    image_view_create_info.subresourceRange.aspectMask,
+                                    VK_IMAGE_LAYOUT_UNDEFINED,
+                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                    0,
+                                    VK_ACCESS_TRANSFER_WRITE_BIT,
+                                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                    VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+            // copy data
+            VkBufferImageCopy region           = {};
+            region.imageSubresource.aspectMask = image_view_create_info.subresourceRange.aspectMask;
+            region.imageSubresource.layerCount = image_view_create_info.subresourceRange.layerCount;
+            region.imageExtent                 = image_create_info.extent;
+            vkCmdCopyBufferToImage(cmd, staging_buffer, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+            // transition image to whatever it needs to be
+            transition_image_layout(cmd,
+                                    image,
+                                    image_view_create_info.subresourceRange.aspectMask,
+                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                    layout,
+                                    VK_ACCESS_TRANSFER_WRITE_BIT,
+                                    0,
+                                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        });
+
+        // destroy staging buffer
+        vmaDestroyBuffer(allocator_, staging_buffer, staging_allocation);
+    } else {
+        // if we aren't copying data, we still need to transition the image layout
+        // TODO: check
+        one_time_submit(graphics_queue_, [&](VkCommandBuffer cmd) {
+            transition_image_layout(cmd,
+                                    image,
+                                    image_view_create_info.subresourceRange.aspectMask,
+                                    VK_IMAGE_LAYOUT_UNDEFINED,
+                                    layout,
+                                    0,
+                                    0,
+                                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+        });
+    }
+
+    image_view_create_info.image = image;
+
+    VkImageView view;
+    vk_check(vkCreateImageView(device_, &image_view_create_info, nullptr, &view));
+    cleanup_.emplace([=, this] { vkDestroyImageView(device_, view, nullptr); });
+
+    return gfx::Texture(image, view, image_create_info.format, layout);
+}
+
+gfx::Texture
+GraphicsBackend::create_sampled_texture(VkFormat format, u32 width, u32 height, const void* data, VkDeviceSize size) {
+    // create image info
+
+    VkImageCreateInfo image_info = {};
+    image_info.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType         = VK_IMAGE_TYPE_2D;
+    image_info.format            = format;
+    image_info.extent            = {.width = width, .height = height, .depth = 1};
+    image_info.mipLevels         = 1;
+    image_info.arrayLayers       = 1;
+    image_info.samples           = VK_SAMPLE_COUNT_1_BIT;
+    image_info.tiling            = VK_IMAGE_TILING_OPTIMAL;
+    image_info.usage             = VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    // create image view info
+
+    VkImageViewCreateInfo view_info       = {};
+    view_info.sType                       = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format                      = format;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.layerCount = 1;
+
+    return create_texture(image_info, view_info, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, data, size);
+}
+
+gfx::Texture GraphicsBackend::create_output_texture(VkFormat format, u32 width, u32 height) {
+    // create image info
+
     VkImageUsageFlags  usage{};
     VkImageAspectFlags aspect{};
     VkImageLayout      layout{};
@@ -1032,40 +1184,17 @@ gfx::Texture GraphicsBackend::create_texture(VkFormat format, u32 width, u32 hei
     image_info.sharingMode       = VK_SHARING_MODE_EXCLUSIVE;
     image_info.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    VmaAllocationCreateInfo alloc_info = {};
-    alloc_info.usage                   = VMA_MEMORY_USAGE_GPU_ONLY;
-
-    VkImage       image;
-    VmaAllocation allocation;
-    vk_check(vmaCreateImage(allocator_, &image_info, &alloc_info, &image, &allocation, nullptr));
-    cleanup_.emplace([=, this] { vmaDestroyImage(allocator_, image, allocation); });
+    // create image view info
 
     VkImageViewCreateInfo view_info       = {};
     view_info.sType                       = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image                       = image;
     view_info.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
     view_info.format                      = format;
     view_info.subresourceRange.aspectMask = aspect;
     view_info.subresourceRange.levelCount = 1;
     view_info.subresourceRange.layerCount = 1;
 
-    VkImageView view;
-    vk_check(vkCreateImageView(device_, &view_info, nullptr, &view));
-    cleanup_.emplace([=, this] { vkDestroyImageView(device_, view, nullptr); });
-
-    one_time_submit(graphics_queue_, [&](VkCommandBuffer cmd) {
-        transition_image_layout(cmd,
-                                image,
-                                view_info.subresourceRange.aspectMask,
-                                VK_IMAGE_LAYOUT_UNDEFINED,
-                                layout,
-                                0,
-                                0,
-                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-    });
-
-    return gfx::Texture(image, view, format, layout);
+    return create_texture(image_info, view_info, layout);
 }
 
 void GraphicsBackend::transition_image_layout(VkCommandBuffer      cmd,

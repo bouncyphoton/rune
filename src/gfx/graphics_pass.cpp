@@ -113,7 +113,7 @@ void GraphicsPass::run(VkCommandBuffer cmd, const std::function<void(VkCommandBu
 
 void GraphicsPass::set_descriptors(VkCommandBuffer cmd, const DescriptorWrites& variable_writes) {
     struct SetWriteData {
-        VkDescriptorSet                   descriptor_set;
+        VkDescriptorSet                   descriptor_set = VK_NULL_HANDLE;
         std::vector<VkWriteDescriptorSet> writes;
     };
 

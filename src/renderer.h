@@ -65,6 +65,7 @@ class Renderer {
 
     std::optional<gfx::Texture> color_tex_;
     std::optional<gfx::Texture> depth_tex_;
+    std::optional<gfx::Texture> test_tex_;
 };
 
 } // namespace rune

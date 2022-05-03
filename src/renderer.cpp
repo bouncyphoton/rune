@@ -9,8 +9,20 @@ Renderer::Renderer(Core& core) : core_(core), gfx_(core_.get_platform().get_grap
     // todo: remove temp image creation
     u32 width  = core_.get_config().get_window_width();
     u32 height = core.get_config().get_window_height();
-    color_tex_ = gfx_.create_texture(VK_FORMAT_R8G8B8A8_UNORM, width, height);
-    depth_tex_ = gfx_.create_texture(VK_FORMAT_D32_SFLOAT, width, height);
+    color_tex_ = gfx_.create_output_texture(VK_FORMAT_R8G8B8A8_UNORM, width, height);
+    depth_tex_ = gfx_.create_output_texture(VK_FORMAT_D32_SFLOAT, width, height);
+
+    u8 missing_texture[4 * 4] = {
+        // black
+        0, 0, 0, 255,
+        // magenta
+        255, 0, 255, 255,
+        // magenta
+        255, 0, 255, 255,
+        // black
+        0, 0, 0, 255,
+    };
+    test_tex_ = gfx_.create_sampled_texture(VK_FORMAT_R8G8B8A8_UNORM, 2, 2, missing_texture, sizeof(missing_texture));
 }
 
 void Renderer::add_to_frame(const RenderObject& robj) {
@@ -47,6 +59,7 @@ void Renderer::render() {
             gfx::DescriptorWrites writes;
             writes.set_buffer("u_vertices", gfx_.get_unified_vertex_buffer());
             writes.set_buffer("u_object_data", gfx_.get_object_data_buffer());
+            writes.set_image_sampler("u_textures", gfx_.get_nearest_sampler(), test_tex_->get_image_view());
             pass.set_descriptors(cmd, writes);
 
             struct DrawData {

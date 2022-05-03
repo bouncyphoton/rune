@@ -63,6 +63,16 @@ struct DescriptorWrites {
         set_buffer(name, buffer.buffer, offset, buffer.range);
     }
 
+    void set_image_sampler(const std::string& name, VkSampler sampler, VkImageView image_view) {
+        Write& write          = write_data_[name];
+        write.descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.write_type      = Write::WriteDataType::IMAGE;
+
+        write.data.image_info.sampler     = sampler;
+        write.data.image_info.imageView   = image_view;
+        write.data.image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
+
   private:
     // variable name -> write info
     std::unordered_map<std::string, Write> write_data_;

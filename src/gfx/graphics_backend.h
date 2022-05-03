@@ -105,6 +105,10 @@ class GraphicsBackend {
         return get_current_frame().object_data_;
     }
 
+    VkSampler get_nearest_sampler() {
+        return nearest_sampler_;
+    }
+
     void update_object_data(const std::vector<ObjectData>& data) {
         update_object_data(data.data(), data.size());
     }
@@ -149,7 +153,15 @@ class GraphicsBackend {
     static bool is_depth_format(VkFormat format);
     static bool is_stencil_format(VkFormat format);
 
-    gfx::Texture create_texture(VkFormat format, u32 width, u32 height);
+    gfx::Texture create_texture(VkImageCreateInfo     image_create_info,
+                                VkImageViewCreateInfo image_view_create_info,
+                                VkImageLayout         layout,
+                                const void*           data = nullptr,
+                                VkDeviceSize          size = 0);
+
+    gfx::Texture create_sampled_texture(VkFormat format, u32 width, u32 height, const void* data, VkDeviceSize size);
+
+    gfx::Texture create_output_texture(VkFormat format, u32 width, u32 height);
 
     void transition_image_layout(VkCommandBuffer      cmd,
                                  VkImage              image,
@@ -271,6 +283,9 @@ class GraphicsBackend {
     // unified buffers
     Buffer unified_vertex_buffer_;
     u32    num_vertices_in_buffer_ = 0;
+
+    // misc
+    VkSampler nearest_sampler_ = VK_NULL_HANDLE;
 };
 
 } // namespace rune::gfx

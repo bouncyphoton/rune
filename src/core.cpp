@@ -38,7 +38,7 @@ static Model load_model(Core& core, const std::string& path) {
     std::string                      warn;
     std::string                      err;
 
-    bool success = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str());
+    bool success = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), std::filesystem::path(path).parent_path().c_str());
     if (!warn.empty()) {
         core.get_logger().warn("tinyobj warning: %", warn);
     }
@@ -92,13 +92,16 @@ static Model load_model(Core& core, const std::string& path) {
         }
     }
 
-    core.get_logger().info("loaded % meshes for model '%'", mesh_data.size(), path);
-
     std::vector<gfx::Mesh> meshes;
     meshes.reserve(mesh_data.size());
     for (const std::vector<Vertex>& vertices : mesh_data) {
+        if (vertices.empty()) {
+            continue;
+        }
         meshes.emplace_back(core.get_platform().get_graphics_backend().load_mesh(vertices));
     }
+
+    core.get_logger().info("loaded % mesh% for model '%'", meshes.size(), (meshes.size() == 1 ? "" : "es"), path);
 
     return Model(meshes);
 }
@@ -128,12 +131,14 @@ void Core::run() {
 
     std::vector<Model> models;
     for (const auto& entry : std::filesystem::directory_iterator("../data/models/retro_urban_kit/obj")) {
-        if (entry.path().extension() != ".obj") continue;
+        if (entry.path().extension() != ".obj") {
+            continue;
+        }
         models.emplace_back(load_model(*this, entry.path().string()));
     }
 
     // Add models
-    constexpr i32 size = 5;
+    constexpr i32 size        = 5;
     constexpr i32 side_length = size * 2 + 1;
     for (i32 x = -size; x <= size; ++x) {
         for (i32 z = -size; z <= size; ++z) {
@@ -184,8 +189,8 @@ void Core::run() {
             platform_.set_mouse_grabbed(false);
         }
         if (platform_.is_mouse_grabbed()) {
-            camera.add_pitch(platform_.get_mouse_delta().y * 0.001f);
-            camera.add_yaw(platform_.get_mouse_delta().x * 0.001f);
+            camera.add_pitch(platform_.get_mouse_delta().y / (f32) get_config().get_window_height());
+            camera.add_yaw(platform_.get_mouse_delta().x / (f32) get_config().get_window_width());
         }
         renderer_.set_camera(camera);
 
