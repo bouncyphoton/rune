@@ -22,6 +22,7 @@ class GraphicsBackend;
 struct RenderObject {
     glm::mat4 model_matrix;
     gfx::Mesh mesh;
+    u32       material_id;
 };
 
 // graphics frontend
@@ -65,7 +66,6 @@ class Renderer {
 
     std::optional<gfx::Texture> color_tex_;
     std::optional<gfx::Texture> depth_tex_;
-    std::optional<gfx::Texture> test_tex_;
 };
 
 } // namespace rune

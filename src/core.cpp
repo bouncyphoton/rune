@@ -9,7 +9,12 @@
 namespace rune {
 
 struct Model {
-    explicit Model(const std::vector<gfx::Mesh>& meshes = {}) : meshes_(meshes) {}
+    explicit Model(const std::vector<gfx::Mesh>& meshes = {}, const std::vector<u32>& material_ids = {})
+        : meshes_(meshes), material_ids_(material_ids) {
+        if (!material_ids.empty()) {
+            rune_assert_eq(material_ids.size(), meshes.size());
+        }
+    }
 
     void add_to_scene(Renderer& renderer, glm::mat4 transformation) const {
         if (meshes_.empty()) {
@@ -19,18 +24,24 @@ struct Model {
         RenderObject robj = {};
         robj.model_matrix = transformation;
 
-        for (const auto& mesh : meshes_) {
-            robj.mesh = mesh;
+        for (u32 i = 0; i < meshes_.size(); ++i) {
+            robj.mesh = meshes_[i];
+            if (!material_ids_.empty()) {
+                robj.material_id = material_ids_[i];
+            } else {
+                robj.material_id = 0;
+            }
             renderer.add_to_frame(robj);
         }
     }
 
   private:
     std::vector<gfx::Mesh> meshes_;
+    std::vector<u32>       material_ids_;
 };
 
 static Model load_model(Core& core, const std::string& path) {
-    core.get_logger().info("loading model: '%'", path);
+    // core.get_logger().info("loading model: '%'", path);
 
     tinyobj::attrib_t                attrib;
     std::vector<tinyobj::shape_t>    shapes;
@@ -38,7 +49,15 @@ static Model load_model(Core& core, const std::string& path) {
     std::string                      warn;
     std::string                      err;
 
-    bool success = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err, path.c_str(), std::filesystem::path(path).parent_path().c_str());
+    std::string mtl_basedir = std::filesystem::path(path).parent_path().string();
+
+    bool success = tinyobj::LoadObj(&attrib,
+                                    &shapes,
+                                    &materials,
+                                    &warn,
+                                    &err,
+                                    path.c_str(),
+                                    mtl_basedir.c_str());
     if (!warn.empty()) {
         core.get_logger().warn("tinyobj warning: %", warn);
     }
@@ -57,9 +76,9 @@ static Model load_model(Core& core, const std::string& path) {
         u32 index_offset = 0;
         for (u32 f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
             u32 fv = shape.mesh.num_face_vertices[f];
-            rune_assert(core, fv == 3); // must be triangle
+            rune_assert(fv == 3); // must be triangle
 
-            i32 mat_id = shape.mesh.material_ids[f] + 1;
+            i32 mat_id = shape.mesh.material_ids[f];
             if (mat_id >= mesh_data.size()) {
                 mesh_data.resize(mat_id + 1);
             }
@@ -92,18 +111,28 @@ static Model load_model(Core& core, const std::string& path) {
         }
     }
 
+    gfx::GraphicsBackend& gfx_backend = core.get_platform().get_graphics_backend();
+
+    // convert meshes and materials
     std::vector<gfx::Mesh> meshes;
     meshes.reserve(mesh_data.size());
-    for (const std::vector<Vertex>& vertices : mesh_data) {
+
+    std::vector<u32> material_ids;
+    material_ids.reserve(mesh_data.size());
+
+    for (u32 mat_id = 0; mat_id < mesh_data.size(); ++mat_id) {
+        std::vector<Vertex> const& vertices = mesh_data[mat_id];
         if (vertices.empty()) {
             continue;
         }
-        meshes.emplace_back(core.get_platform().get_graphics_backend().load_mesh(vertices));
+        meshes.emplace_back(gfx_backend.load_mesh(vertices));
+        material_ids.emplace_back(
+            gfx_backend.load_texture(mtl_basedir + "/" + materials[mat_id].diffuse_texname).id);
     }
 
-    core.get_logger().info("loaded % mesh% for model '%'", meshes.size(), (meshes.size() == 1 ? "" : "es"), path);
+    // core.get_logger().info("loaded % mesh% for model '%'", meshes.size(), (meshes.size() == 1 ? "" : "es"), path);
 
-    return Model(meshes);
+    return Model(meshes, material_ids);
 }
 
 struct Transformation {
@@ -138,12 +167,14 @@ void Core::run() {
     }
 
     // Add models
-    constexpr i32 size        = 5;
-    constexpr i32 side_length = size * 2 + 1;
-    for (i32 x = -size; x <= size; ++x) {
-        for (i32 z = -size; z <= size; ++z) {
+    const i32 num_models = (i32)models.size();
+    const i32 side_length = std::ceil(std::sqrt(num_models));
+    const i32 half_extent = std::ceil((f32)(side_length - 1) / 2.0f);
+    constexpr float distance = 2.0f;
+    for (i32 x = -half_extent; x <= half_extent; ++x) {
+        for (i32 z = -half_extent; z <= half_extent; ++z) {
             Transformation transformation;
-            transformation.position = glm::vec3(x, 0, z);
+            transformation.position = glm::vec3(x, 0, z) * distance;
 
             const auto entity = registry_.create();
             registry_.emplace<Transformation>(entity, transformation);
@@ -189,8 +220,8 @@ void Core::run() {
             platform_.set_mouse_grabbed(false);
         }
         if (platform_.is_mouse_grabbed()) {
-            camera.add_pitch(platform_.get_mouse_delta().y / (f32) get_config().get_window_height());
-            camera.add_yaw(platform_.get_mouse_delta().x / (f32) get_config().get_window_width());
+            camera.add_pitch(platform_.get_mouse_delta().y / (f32)get_config().get_window_height());
+            camera.add_yaw(platform_.get_mouse_delta().x / (f32)get_config().get_window_width());
         }
         renderer_.set_camera(camera);
 

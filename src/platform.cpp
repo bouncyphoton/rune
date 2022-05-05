@@ -35,11 +35,11 @@ static void mouse_button_callback(GLFWwindow* window, int button, int action, in
 Platform::Platform(Core& core) : core_(core) {
     Config& conf = core.get_config();
 
-    rune_assert(core_, conf.get_window_width() > 0);
-    rune_assert(core_, conf.get_window_height() > 0);
-    rune_assert(core_, glfwInit() == GLFW_TRUE);
+    rune_assert(conf.get_window_width() > 0);
+    rune_assert(conf.get_window_height() > 0);
+    rune_assert(glfwInit() == GLFW_TRUE);
 
-    rune_assert(core_, glfwVulkanSupported());
+    rune_assert(glfwVulkanSupported());
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
@@ -48,7 +48,7 @@ Platform::Platform(Core& core) : core_(core) {
                                "rune",
                                nullptr,
                                nullptr);
-    rune_assert(core_, window_ != nullptr);
+    rune_assert(window_ != nullptr);
 
     glfwSetKeyCallback(window_, [](GLFWwindow* window, int key, int scancode, int action, int mods) {
         //

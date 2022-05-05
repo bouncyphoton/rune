@@ -54,9 +54,8 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
         }
 
         modules.emplace_back();
-        rune_assert(core_,
-                    spvReflectCreateShaderModule(shader_data.size(), shader_data.data(), &modules.back()) ==
-                        SPV_REFLECT_RESULT_SUCCESS);
+        rune_assert_eq(spvReflectCreateShaderModule(shader_data.size(), shader_data.data(), &modules.back()),
+                       SPV_REFLECT_RESULT_SUCCESS);
     }
 
     u32 total_sets      = 0;
@@ -128,7 +127,7 @@ void RenderPass::process_shaders(const std::vector<ShaderInfo>& shaders) {
                 bindings[j].binding            = binding->binding;
                 bindings[j].descriptorType     = static_cast<VkDescriptorType>(binding->descriptor_type);
                 bindings[j].descriptorCount    = binding->count;
-                bindings[j].stageFlags         = shaders[s].stage;
+                bindings[j].stageFlags         = VK_SHADER_STAGE_ALL; // shaders[s].stage;
                 bindings[j].pImmutableSamplers = nullptr;
 
                 DescriptorInfo descriptor_info = {};

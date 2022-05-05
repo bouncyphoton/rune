@@ -25,6 +25,8 @@ namespace rune::gfx {
 
 struct ObjectData {
     glm::mat4 model_matrix;
+    u32       material_id;
+    u32       pad[3];
 };
 
 struct Mesh {
@@ -70,6 +72,10 @@ struct MeshBatch {
 struct BatchGroup {
     u32 first_batch = 0;
     u32 num_batches = 0;
+};
+
+struct TextureId {
+    u32 id;
 };
 
 class GraphicsBackend {
@@ -120,6 +126,16 @@ class GraphicsBackend {
     }
 
     Mesh load_mesh(const Vertex* data, u32 num_vertices);
+
+    // TODO: remove temp texture management
+    TextureId load_texture(const std::string& path);
+
+    // load a texture from R8G8B8A8 texture data
+    TextureId load_texture_from_data(const std::string& name, void* data, u32 width, u32 height);
+
+    std::vector<Texture> const& get_loaded_textures() const {
+        return textures_;
+    }
 
     BatchGroup add_batches(const std::vector<gfx::MeshBatch>& batches);
 
@@ -173,13 +189,14 @@ class GraphicsBackend {
                                  VkPipelineStageFlags src_stage,
                                  VkPipelineStageFlags dst_stage);
 
-  private:
     // TODO: config option?
     static constexpr u32 NUM_FRAMES_IN_FLIGHT = 2;
     static constexpr u32 MAX_UNIQUE_VERTICES  = 10000000;
     static constexpr u32 MAX_OBJECTS          = 1000;
     static constexpr u32 MAX_DRAWS            = 1000;
+    static constexpr u32 MAX_TEXTURES         = 128;
 
+  private:
     struct DescriptorSetCache {
         [[nodiscard]] bool empty() const {
             return available_.empty();
@@ -283,6 +300,10 @@ class GraphicsBackend {
     // unified buffers
     Buffer unified_vertex_buffer_;
     u32    num_vertices_in_buffer_ = 0;
+
+    // textures, TODO: remove temp caching here
+    std::unordered_map<std::string, TextureId> cached_textures_;
+    std::vector<Texture>                       textures_;
 
     // misc
     VkSampler nearest_sampler_ = VK_NULL_HANDLE;

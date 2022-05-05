@@ -128,12 +128,6 @@ void GraphicsPass::set_descriptors(VkCommandBuffer cmd, const DescriptorWrites& 
             core_.get_logger().fatal("tried to set descriptor that doesn't exist: '%'", variable_name);
         }
 
-        if (it->second.type != write_data.descriptor_type) {
-            core_.get_logger().fatal("tried to write incorrect descriptor type: expected '%', got '%'",
-                                     it->second.type,
-                                     write_data.descriptor_type);
-        }
-
         u32 set_idx = it->second.set;
 
         // see if we've written something to this set yet in this batch
@@ -143,29 +137,38 @@ void GraphicsPass::set_descriptors(VkCommandBuffer cmd, const DescriptorWrites& 
             set = gfx_.get_descriptor_set(get_descriptor_set_layout(set_idx));
         }
 
-        VkWriteDescriptorSet write = {};
-        write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet               = set;
-        write.dstBinding           = it->second.binding;
-        write.descriptorType       = it->second.type;
-        write.descriptorCount      = 1;
+        for (const auto& [array_index, data] : write_data) {
+            if (it->second.type != data.descriptor_type) {
+                core_.get_logger().fatal("tried to write incorrect descriptor type: expected '%', got '%'",
+                                         it->second.type,
+                                         data.descriptor_type);
+            }
 
-        switch (write_data.write_type) {
-        case DescriptorWrites::Write::WriteDataType::BUFFER:
-            write.pBufferInfo = &write_data.data.buffer_info;
-            break;
-        case DescriptorWrites::Write::WriteDataType::IMAGE:
-            write.pImageInfo = &write_data.data.image_info;
-            break;
-        case DescriptorWrites::Write::WriteDataType::INVALID:
-            core_.get_logger().fatal("invalid write type");
-            break;
+            VkWriteDescriptorSet write = {};
+            write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet               = set;
+            write.dstBinding           = it->second.binding;
+            write.descriptorType       = it->second.type;
+            write.descriptorCount      = 1;
+            write.dstArrayElement      = array_index;
+
+            switch (data.write_type) {
+            case DescriptorWrites::Write::WriteDataType::BUFFER:
+                write.pBufferInfo = &data.info.buffer_info;
+                break;
+            case DescriptorWrites::Write::WriteDataType::IMAGE:
+                write.pImageInfo = &data.info.image_info;
+                break;
+            case DescriptorWrites::Write::WriteDataType::INVALID:
+                core_.get_logger().fatal("invalid write type");
+                break;
+            }
+
+            // TODO: ...
+
+            set_writes[set_idx].descriptor_set = set;
+            set_writes[set_idx].writes.emplace_back(write);
         }
-
-        // TODO: ...
-
-        set_writes[set_idx].descriptor_set = set;
-        set_writes[set_idx].writes.emplace_back(write);
     }
 
     for (auto [set_idx, write_data] : set_writes) {

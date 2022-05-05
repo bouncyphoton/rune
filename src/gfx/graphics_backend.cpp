@@ -7,10 +7,13 @@
 #include <set>
 #include <spirv_reflect.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
-#define vk_check(expr) rune_assert_eq(core_, (expr), VK_SUCCESS)
+#define vk_check(expr) rune_assert_eq((expr), VK_SUCCESS)
 
 namespace rune::gfx {
 
@@ -72,7 +75,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
 
     // create descriptor pool
     VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4},
-                                    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 128 * NUM_FRAMES_IN_FLIGHT}};
+                                    {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_TEXTURES * NUM_FRAMES_IN_FLIGHT}};
 
     VkDescriptorPoolCreateInfo descriptor_pool_create_info = {};
     descriptor_pool_create_info.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -147,6 +150,31 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         cleanup_.emplace([=, this] { vkDestroySampler(device_, nearest_sampler_, nullptr); });
         // TODO: linear sampler
     }
+
+    // create missing texture
+    u8 missing_texture[4 * 4] = {
+        // black
+        0,
+        0,
+        0,
+        255,
+        // magenta
+        255,
+        0,
+        255,
+        255,
+        // magenta
+        255,
+        0,
+        255,
+        255,
+        // black
+        0,
+        0,
+        0,
+        255,
+    };
+    load_texture_from_data("missing_texture", missing_texture, 2, 2);
 
     // todo: swapchain resizing
 }
@@ -288,8 +316,8 @@ void GraphicsBackend::update_object_data(const ObjectData* data, u32 num_objects
 }
 
 Mesh GraphicsBackend::load_mesh(const Vertex* data, u32 num_vertices) {
-    rune_assert(core_, num_vertices > 0);
-    rune_assert(core_, data);
+    rune_assert(num_vertices > 0);
+    rune_assert(data);
 
     // Make sure we have room
     if (num_vertices_in_buffer_ + num_vertices > MAX_UNIQUE_VERTICES) {
@@ -309,6 +337,45 @@ Mesh GraphicsBackend::load_mesh(const Vertex* data, u32 num_vertices) {
     num_vertices_in_buffer_ += num_vertices;
 
     return Mesh(first_vertex_idx, num_vertices);
+}
+
+TextureId GraphicsBackend::load_texture(const std::string& path) {
+    auto it = cached_textures_.find(path);
+    if (it != cached_textures_.end()) {
+        return it->second;
+    }
+
+    // load RGBA texture
+    constexpr u32 num_channels = 4;
+    int width, height;
+    u8* img_data = stbi_load(path.c_str(), &width, &height, nullptr, num_channels);
+    if (!img_data) {
+        core_.get_logger().error("failed to load texture %", path);
+        return TextureId{ 0 };
+    }
+
+    // create it on the gpu
+    TextureId id = load_texture_from_data(path, img_data, width, height);
+
+    // free our RGBA texture data
+    free(img_data);
+
+    return id;
+}
+
+TextureId GraphicsBackend::load_texture_from_data(const std::string& name, void* data, u32 width, u32 height) {
+    constexpr u32 num_channels = 4;
+
+    gfx::Texture texture = create_sampled_texture(VK_FORMAT_R8G8B8A8_UNORM, width, height, data, width * height * num_channels);
+
+    // create an id for it and cache the texture
+    TextureId id = { static_cast<u32>(textures_.size()) };
+    textures_.emplace_back(texture);
+    cached_textures_[name] = id;
+
+    core_.get_logger().verbose("loaded texture % -> %", name, id.id);
+
+    return id;
 }
 
 BatchGroup GraphicsBackend::add_batches(const std::vector<gfx::MeshBatch>& batches) {
@@ -372,7 +439,7 @@ void GraphicsBackend::choose_physical_device() {
     // get physical devices
     u32 num_physical_devices;
     vk_check(vkEnumeratePhysicalDevices(instance_, &num_physical_devices, nullptr));
-    rune_assert(core_, num_physical_devices > 0);
+    rune_assert(num_physical_devices > 0);
     std::vector<VkPhysicalDevice> physical_devices(num_physical_devices);
     vk_check(vkEnumeratePhysicalDevices(instance_, &num_physical_devices, physical_devices.data()));
 
@@ -477,6 +544,14 @@ void GraphicsBackend::choose_physical_device() {
 void GraphicsBackend::create_logical_device() {
     std::set<unsigned> unique_indices = {graphics_family_index_, compute_family_index_, present_family_index_};
 
+    VkPhysicalDeviceFeatures2 physical_features2 = {};
+    physical_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    vkGetPhysicalDeviceFeatures2(physical_device_, &physical_features2);
+
+    VkPhysicalDeviceDescriptorIndexingFeatures indexing_features = {};
+    indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+    indexing_features.runtimeDescriptorArray = VK_TRUE;
+
     float                                queue_priority = 1.0f;
     std::vector<VkDeviceQueueCreateInfo> queue_infos(unique_indices.size());
     unsigned                             num_queue_infos = 0;
@@ -496,9 +571,15 @@ void GraphicsBackend::create_logical_device() {
         device_info.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         device_info.pQueueCreateInfos       = queue_infos.data();
         device_info.queueCreateInfoCount    = num_queue_infos;
-        device_info.pEnabledFeatures        = &feature_set;
         device_info.enabledExtensionCount   = std::size(g_required_device_extensions);
         device_info.ppEnabledExtensionNames = g_required_device_extensions;
+        device_info.pNext = &physical_features2;
+
+        // TODO: check if bindless is supported
+        {
+            physical_features2.pNext = &indexing_features;
+            physical_features2.features = feature_set;
+        }
 
         VkResult create_device_result = vkCreateDevice(physical_device_, &device_info, nullptr, &device_);
         if (create_device_result == VK_ERROR_FEATURE_NOT_PRESENT) {
@@ -558,7 +639,7 @@ void GraphicsBackend::create_swapchain() {
     vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_, &num_formats, nullptr);
     std::vector<VkSurfaceFormatKHR> formats(num_formats);
     vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device_, surface_, &num_formats, formats.data());
-    rune_assert(core_, num_formats > 0);
+    rune_assert(num_formats > 0);
 
     VkSurfaceFormatKHR surface_format = formats[0];
     for (VkSurfaceFormatKHR f : formats) {
@@ -788,7 +869,7 @@ VkRenderPass GraphicsBackend::create_render_pass(const std::vector<VkFormat>& fo
                     desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
                 }
                 // there can only be one depth attachment
-                rune_assert(core_, !depth_reference.has_value());
+                rune_assert(!depth_reference.has_value());
                 depth_reference = ref;
             } else {
                 ref.layout   = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;

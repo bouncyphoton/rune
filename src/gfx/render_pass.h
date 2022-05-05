@@ -42,40 +42,40 @@ struct DescriptorWrites {
         union {
             VkDescriptorBufferInfo buffer_info;
             VkDescriptorImageInfo  image_info;
-        } data;
+        } info;
     };
 
-    const std::unordered_map<std::string, Write>& get_write_data() const {
+    const std::unordered_map<std::string, std::unordered_map<u32, Write>>& get_write_data() const {
         return write_data_;
     }
 
     void set_buffer(const std::string& name, VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range) {
-        Write& write          = write_data_[name];
+        Write& write          = write_data_[name][0];
         write.descriptor_type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         write.write_type      = Write::WriteDataType::BUFFER;
 
-        write.data.buffer_info.buffer = buffer;
-        write.data.buffer_info.offset = offset;
-        write.data.buffer_info.range  = range;
+        write.info.buffer_info.buffer = buffer;
+        write.info.buffer_info.offset = offset;
+        write.info.buffer_info.range  = range;
     }
 
     void set_buffer(const std::string& name, const Buffer& buffer, VkDeviceSize offset = 0) {
         set_buffer(name, buffer.buffer, offset, buffer.range);
     }
 
-    void set_image_sampler(const std::string& name, VkSampler sampler, VkImageView image_view) {
-        Write& write          = write_data_[name];
+    void set_image_sampler(const std::string& name, VkSampler sampler, VkImageView image_view, u32 array_index) {
+        Write& write          = write_data_[name][array_index];
         write.descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         write.write_type      = Write::WriteDataType::IMAGE;
 
-        write.data.image_info.sampler     = sampler;
-        write.data.image_info.imageView   = image_view;
-        write.data.image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        write.info.image_info.sampler     = sampler;
+        write.info.image_info.imageView   = image_view;
+        write.info.image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     }
 
   private:
-    // variable name -> write info
-    std::unordered_map<std::string, Write> write_data_;
+    // <variable name, <array index, write info>>
+    std::unordered_map<std::string, std::unordered_map<u32, Write>> write_data_;
 };
 
 /**

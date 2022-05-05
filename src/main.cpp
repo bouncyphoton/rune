@@ -1,10 +1,9 @@
 #include "core.h"
 
 int main() {
-    rune::Core core;
     // core.add_system();
 
-    core.run();
+    rune::Core::get().run();
 
     return 0;
 }

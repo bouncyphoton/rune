@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 #file(GLOB_RECURSE RUNE_SRCS CONFIGURE_DEPENDS src/*.cpp src/*.c)
 #add_executable(rune ${RUNE_SRCS})
 add_executable(rune src/config.cpp src/core.cpp src/gfx/graphics_backend.cpp src/main.cpp src/platform.cpp src/renderer.cpp src/gfx/render_pass.cpp src/gfx/graphics_pass.cpp external/SPIRV-Reflect/spirv_reflect.c src/gfx/texture.cpp src/gfx/texture.h)
-target_include_directories(rune PRIVATE src/ external/SPIRV-Reflect external/VulkanMemoryAllocator/include external/glm external/tinyobjloader external/entt/single_include)
+target_include_directories(rune PRIVATE src/ external/SPIRV-Reflect external/VulkanMemoryAllocator/include external/glm external/tinyobjloader external/entt/single_include external/stb)
 
 # GLFW
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)

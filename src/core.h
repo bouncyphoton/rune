@@ -14,7 +14,10 @@ namespace rune {
 
 class Core final {
   public:
-    Core();
+    static Core& get() {
+        static Core core;
+        return core;
+    }
 
     void run();
 
@@ -35,6 +38,8 @@ class Core final {
     }
 
   private:
+    Core();
+
     Logger   logger_;
     Config   config_;
     Platform platform_;

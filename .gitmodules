@@ -15,4 +15,7 @@
 	url = https://www.github.com/bouncyphoton/tinyobjloader
 [submodule "external/entt"]
 	path = external/entt
-	url = https://github.com/skypjack/entt.git
+	url = https://github.com/bouncyphoton/entt.git
+[submodule "external/stb"]
+	path = external/stb
+	url = https://github.com/bouncyphoton/stb

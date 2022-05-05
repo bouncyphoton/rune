@@ -1,28 +1,11 @@
 #version 450
-
-struct Vertex {
-    vec3 position;
-    vec3 normal;
-    vec2 uv;
-};
-
-struct ObjectData {
-    mat4 model_matrix;
-};
+#include "defs.glsl"
 
 layout (location = 0) out VertexData {
     vec3 normal;
     vec2 uv;
     float object_id;
 } VS_OUT;
-
-layout (std430, set = 0, binding = 0) readonly buffer VertexBuffer {
-    float data[];
-} u_vertices;
-
-layout (std430, set = 0, binding = 1) readonly buffer ObjectDataBuffer {
-    ObjectData data[];
-} u_object_data;
 
 layout (push_constant) uniform PushConstants
 {
