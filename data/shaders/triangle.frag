@@ -10,7 +10,7 @@ layout (location = 0) out vec4 o_img;
 layout (location = 0) in VertexData {
     vec3 normal;
     vec2 uv;
-    float object_id;
+    flat uint object_id;
 } FS_IN;
 
 void main() {
@@ -21,4 +21,8 @@ void main() {
 #else
     o_img = texture(u_textures[o.material_id], FS_IN.uv);
 #endif
+
+    if (o_img.a < 0.5) {
+        discard;
+    }
 }

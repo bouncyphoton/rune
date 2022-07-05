@@ -1,7 +1,7 @@
 #ifndef RUNE_CAMERA_H
 #define RUNE_CAMERA_H
 
-#include "constants.h"
+#include "consts.h"
 #include "types.h"
 
 #include <glm/glm.hpp>
@@ -28,7 +28,7 @@ class Camera {
     }
 
     [[nodiscard]] glm::mat4 get_view_matrix() const {
-        return glm::lookAt(position_, position_ + get_forward(), consts::UP);
+        return glm::lookAt(position_, position_ + get_forward(), consts::up);
     }
 
     [[nodiscard]] glm::mat4 get_projection_matrix() const {
@@ -46,7 +46,7 @@ class Camera {
     }
 
     [[nodiscard]] glm::vec3 get_right() const {
-        return normalize(glm::cross(get_forward(), consts::UP));
+        return normalize(glm::cross(get_forward(), consts::up));
     }
 
     [[nodiscard]] glm::vec3 get_up() const {

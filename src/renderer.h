@@ -3,6 +3,7 @@
 
 #include "gfx/camera.h"
 #include "gfx/graphics_backend.h"
+#include "gfx/graphics_pass.h"
 #include "gfx/texture.h"
 
 #include <glm/glm.hpp>
@@ -53,7 +54,7 @@ class Renderer {
 
   private:
     void process_object_data();
-    void reset_frame();
+    void draw_with_pass(gfx::GraphicsPass& pass);
 
     Core&                 core_;
     gfx::GraphicsBackend& gfx_;
@@ -64,8 +65,11 @@ class Renderer {
     std::unordered_map<u64, std::vector<RenderObject>> render_objects_by_mesh_;
     gfx::BatchGroup                                    geometry_batch_group_;
 
-    std::optional<gfx::Texture> color_tex_;
-    std::optional<gfx::Texture> depth_tex_;
+    std::optional<gfx::GraphicsPass> main_pass_;
+    std::optional<gfx::Texture>      color_tex_;
+    std::optional<gfx::Texture>      depth_tex_;
+
+    std::optional<gfx::Texture> default_tex_;
 };
 
 } // namespace rune

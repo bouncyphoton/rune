@@ -17,8 +17,6 @@
 
 namespace rune::gfx {
 
-constexpr const char* g_instance_layers[] = {"VK_LAYER_KHRONOS_validation"};
-
 constexpr const char* g_required_device_extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME,
                                                         VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME};
 
@@ -31,6 +29,10 @@ constexpr VkPhysicalDeviceFeatures g_possible_device_feature_sets[] = {
     VkPhysicalDeviceFeatures{.drawIndirectFirstInstance = VK_TRUE, .shaderSampledImageArrayDynamicIndexing = VK_TRUE}};
 
 GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
+    core_.get_logger().info("initializing graphics");
+
+    const char* validation_layer = "VK_LAYER_KHRONOS_validation";
+
     // create instance
     VkApplicationInfo app_info = {};
     app_info.sType             = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -40,21 +42,28 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     VkInstanceCreateInfo instance_info    = {};
     instance_info.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     instance_info.pApplicationInfo        = &app_info;
-    instance_info.enabledLayerCount       = std::size(g_instance_layers);
-    instance_info.ppEnabledLayerNames     = g_instance_layers;
+    if (!consts::is_release) {
+        instance_info.enabledLayerCount   = 1;
+        instance_info.ppEnabledLayerNames = &validation_layer;
+    }
     instance_info.ppEnabledExtensionNames = glfwGetRequiredInstanceExtensions(&instance_info.enabledExtensionCount);
 
+    core_.get_logger().info("creating instance");
     vk_check(vkCreateInstance(&instance_info, nullptr, &instance_));
     cleanup_.emplace([=, this]() { vkDestroyInstance(instance_, nullptr); });
 
     // create surface
+    core_.get_logger().info("creating surface");
     vk_check(glfwCreateWindowSurface(instance_, window, nullptr, &surface_));
     cleanup_.emplace([=, this]() { vkDestroySurfaceKHR(instance_, surface_, nullptr); });
 
+    core_.get_logger().info("choosing physical device");
     choose_physical_device();
+    core_.get_logger().info("choosing logical device");
     create_logical_device();
 
     // vulkan memory allocator
+    core_.get_logger().info("creating allocator");
     VmaAllocatorCreateInfo vma_ci = {};
     vma_ci.vulkanApiVersion       = app_info.apiVersion;
     vma_ci.physicalDevice         = physical_device_;
@@ -63,6 +72,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     vk_check(vmaCreateAllocator(&vma_ci, &allocator_));
     cleanup_.emplace([=, this] { vmaDestroyAllocator(allocator_); });
 
+    core_.get_logger().info("creating command pool");
     // create command pool, single threaded rendering for now
     VkCommandPoolCreateInfo command_pool_create_info = {};
     command_pool_create_info.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -74,6 +84,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     create_swapchain();
 
     // create descriptor pool
+    core_.get_logger().info("creating descriptor pool");
     VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4},
                                     {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_TEXTURES * NUM_FRAMES_IN_FLIGHT}};
 
@@ -86,6 +97,7 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     cleanup_.emplace([=, this] { vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr); });
 
     // create per-frame data
+    core_.get_logger().info("creating per frame data");
     for (PerFrame& frame : frames_) {
         VkCommandBufferAllocateInfo cmd_buf_alloc_info = {};
         cmd_buf_alloc_info.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -131,10 +143,12 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     }
 
     // create unified buffers
+    core_.get_logger().info("creating unified buffers");
     unified_vertex_buffer_ = create_buffer_gpu(sizeof(Vertex) * MAX_UNIQUE_VERTICES,
                                                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                                BufferDestroyPolicy::AUTOMATIC_DESTROY);
 
+    core_.get_logger().info("creating samplers");
     {
         VkSamplerCreateInfo sampler_create_info = {};
         sampler_create_info.sType               = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -152,17 +166,8 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
     }
 
     // create missing texture
+    core_.get_logger().info("creating default texture");
     u8 missing_texture[4 * 4] = {
-        // black
-        0,
-        0,
-        0,
-        255,
-        // magenta
-        255,
-        0,
-        255,
-        255,
         // magenta
         255,
         0,
@@ -172,11 +177,23 @@ GraphicsBackend::GraphicsBackend(Core& core, GLFWwindow* window) : core_(core) {
         0,
         0,
         0,
+        255,
+        // black
+        0,
+        0,
+        0,
+        255,
+        // magenta
+        255,
+        0,
+        255,
         255,
     };
     load_texture_from_data("missing_texture", missing_texture, 2, 2);
 
     // todo: swapchain resizing
+
+    core_.get_logger().info("initialized graphics");
 }
 
 GraphicsBackend::~GraphicsBackend() {
@@ -243,7 +260,7 @@ void GraphicsBackend::end_frame(const gfx::Texture& texture) {
     VkImageBlit blit_region               = {};
     blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit_region.srcSubresource.layerCount = 1;
-    blit_region.srcOffsets[1]             = {800, 600, 1};
+    blit_region.srcOffsets[1]             = { (i32)texture.get_width(), (i32)texture.get_height(), 1 };
     blit_region.dstOffsets[1]             = {(i32)swapchain_extent_.width, (i32)swapchain_extent_.height, 1};
     blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     blit_region.dstSubresource.layerCount = 1;
@@ -347,11 +364,11 @@ TextureId GraphicsBackend::load_texture(const std::string& path) {
 
     // load RGBA texture
     constexpr u32 num_channels = 4;
-    int width, height;
-    u8* img_data = stbi_load(path.c_str(), &width, &height, nullptr, num_channels);
+    int           width, height;
+    u8*           img_data = stbi_load(path.c_str(), &width, &height, nullptr, num_channels);
     if (!img_data) {
         core_.get_logger().error("failed to load texture %", path);
-        return TextureId{ 0 };
+        return TextureId{0};
     }
 
     // create it on the gpu
@@ -366,10 +383,11 @@ TextureId GraphicsBackend::load_texture(const std::string& path) {
 TextureId GraphicsBackend::load_texture_from_data(const std::string& name, void* data, u32 width, u32 height) {
     constexpr u32 num_channels = 4;
 
-    gfx::Texture texture = create_sampled_texture(VK_FORMAT_R8G8B8A8_UNORM, width, height, data, width * height * num_channels);
+    gfx::Texture texture =
+        create_sampled_texture(VK_FORMAT_R8G8B8A8_UNORM, width, height, data, width * height * num_channels);
 
     // create an id for it and cache the texture
-    TextureId id = { static_cast<u32>(textures_.size()) };
+    TextureId id = {static_cast<u32>(textures_.size())};
     textures_.emplace_back(texture);
     cached_textures_[name] = id;
 
@@ -411,7 +429,7 @@ BatchGroup GraphicsBackend::add_batches(const std::vector<gfx::MeshBatch>& batch
     copy_to_buffer(draws.data(),
                    draws.size() * sizeof(draws[0]),
                    get_current_frame().draw_data_,
-                   get_current_frame().num_draws_);
+                   get_current_frame().num_draws_ * sizeof(draws[0]));
     get_current_frame().num_draws_ += draws.size();
 
     return batch_group;
@@ -545,11 +563,11 @@ void GraphicsBackend::create_logical_device() {
     std::set<unsigned> unique_indices = {graphics_family_index_, compute_family_index_, present_family_index_};
 
     VkPhysicalDeviceFeatures2 physical_features2 = {};
-    physical_features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    physical_features2.sType                     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
     vkGetPhysicalDeviceFeatures2(physical_device_, &physical_features2);
 
     VkPhysicalDeviceDescriptorIndexingFeatures indexing_features = {};
-    indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+    indexing_features.sType                  = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
     indexing_features.runtimeDescriptorArray = VK_TRUE;
 
     float                                queue_priority = 1.0f;
@@ -573,11 +591,11 @@ void GraphicsBackend::create_logical_device() {
         device_info.queueCreateInfoCount    = num_queue_infos;
         device_info.enabledExtensionCount   = std::size(g_required_device_extensions);
         device_info.ppEnabledExtensionNames = g_required_device_extensions;
-        device_info.pNext = &physical_features2;
+        device_info.pNext                   = &physical_features2;
 
         // TODO: check if bindless is supported
         {
-            physical_features2.pNext = &indexing_features;
+            physical_features2.pNext    = &indexing_features;
             physical_features2.features = feature_set;
         }
 
@@ -617,8 +635,8 @@ void GraphicsBackend::create_swapchain() {
     swapchain_extent_ = capabilities.currentExtent;
     if (swapchain_extent_.width == UINT32_MAX && swapchain_extent_.height == UINT32_MAX) {
         swapchain_extent_.width  = std::clamp(core_.get_config().get_window_width(),
-                                             capabilities.minImageExtent.width,
-                                             capabilities.maxImageExtent.width);
+                                              capabilities.minImageExtent.width,
+                                              capabilities.maxImageExtent.width);
         swapchain_extent_.height = std::clamp(core_.get_config().get_window_height(),
                                               capabilities.minImageExtent.height,
                                               capabilities.maxImageExtent.height);
@@ -740,18 +758,18 @@ void GraphicsBackend::one_time_submit(VkQueue queue, const std::function<void(Vk
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin_info);
+    vk_check(vkBeginCommandBuffer(cmd, &begin_info));
 
     cmd_recording_func(cmd);
 
-    vkEndCommandBuffer(cmd);
+    vk_check(vkEndCommandBuffer(cmd));
 
     VkSubmitInfo submit_info       = {};
     submit_info.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers    = &cmd;
-    vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue);
+    vk_check(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE));
+    vk_check(vkQueueWaitIdle(queue));
 
     vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
 }
@@ -925,7 +943,7 @@ VkFramebuffer GraphicsBackend::create_framebuffer(VkRenderPass                  
 
 VkDescriptorSetLayout GraphicsBackend::create_descriptor_set_layout(const VkDescriptorSetLayoutCreateInfo& set_info) {
     VkDescriptorSetLayout layout;
-    vkCreateDescriptorSetLayout(device_, &set_info, nullptr, &layout);
+    vk_check(vkCreateDescriptorSetLayout(device_, &set_info, nullptr, &layout));
     cleanup_.emplace([=, this] { vkDestroyDescriptorSetLayout(device_, layout, nullptr); });
     return layout;
 }
@@ -1180,7 +1198,6 @@ gfx::Texture GraphicsBackend::create_texture(VkImageCreateInfo     image_create_
         vmaDestroyBuffer(allocator_, staging_buffer, staging_allocation);
     } else {
         // if we aren't copying data, we still need to transition the image layout
-        // TODO: check
         one_time_submit(graphics_queue_, [&](VkCommandBuffer cmd) {
             transition_image_layout(cmd,
                                     image,
@@ -1200,7 +1217,7 @@ gfx::Texture GraphicsBackend::create_texture(VkImageCreateInfo     image_create_
     vk_check(vkCreateImageView(device_, &image_view_create_info, nullptr, &view));
     cleanup_.emplace([=, this] { vkDestroyImageView(device_, view, nullptr); });
 
-    return gfx::Texture(image, view, image_create_info.format, layout);
+    return gfx::Texture(image, view, image_create_info.format, layout, image_create_info.extent);
 }
 
 gfx::Texture

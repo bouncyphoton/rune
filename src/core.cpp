@@ -95,7 +95,7 @@ static Model load_model(Core& core, const std::string& path) {
                 f32 tx = 0, ty = 0;
                 if (idx.texcoord_index >= 0) {
                     tx = attrib.texcoords[2 * size_t(idx.texcoord_index) + 0];
-                    ty = attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
+                    ty = 1.0 - attrib.texcoords[2 * size_t(idx.texcoord_index) + 1];
                 }
 
                 tinyobj::real_t nx = attrib.normals[3 * size_t(idx.normal_index) + 0];
@@ -105,9 +105,6 @@ static Model load_model(Core& core, const std::string& path) {
                 vertices.emplace_back(Vertex{{x, y, z}, {nx, ny, nz}, {tx, ty}});
             }
             index_offset += fv;
-
-            // also, material here
-            // shapes[s].vertices.material_ids[f];
         }
     }
 
@@ -130,7 +127,7 @@ static Model load_model(Core& core, const std::string& path) {
             gfx_backend.load_texture(mtl_basedir + "/" + materials[mat_id].diffuse_texname).id);
     }
 
-    // core.get_logger().info("loaded % mesh% for model '%'", meshes.size(), (meshes.size() == 1 ? "" : "es"), path);
+    //core.get_logger().info("loaded % mesh% for model '%'", meshes.size(), (meshes.size() == 1 ? "" : "es"), path);
 
     return Model(meshes, material_ids);
 }
@@ -208,10 +205,10 @@ void Core::run() {
             camera.add_position(camera.get_right() * -move_speed);
         }
         if (platform_.is_key_down(GLFW_KEY_SPACE)) {
-            camera.add_position(glm::vec3(0, move_speed, 0));
+            camera.add_position(consts::up * move_speed);
         }
         if (platform_.is_key_down(GLFW_KEY_LEFT_CONTROL)) {
-            camera.add_position(glm::vec3(0, -move_speed, 0));
+            camera.add_position(consts::up * -move_speed);
         }
         if (platform_.is_key_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
             platform_.set_mouse_grabbed(true);

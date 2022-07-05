@@ -4,11 +4,10 @@
 layout (location = 0) out VertexData {
     vec3 normal;
     vec2 uv;
-    float object_id;
+    flat uint object_id;
 } VS_OUT;
 
-layout (push_constant) uniform PushConstants
-{
+layout (push_constant) uniform PushConstants {
     mat4 vp;
 } u_push;
 

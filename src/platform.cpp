@@ -33,6 +33,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 static void mouse_button_callback(GLFWwindow* window, int button, int action, int mods) {}
 
 Platform::Platform(Core& core) : core_(core) {
+    core_.get_logger().info("initializing platform");
     Config& conf = core.get_config();
 
     rune_assert(conf.get_window_width() > 0);
@@ -60,6 +61,7 @@ Platform::Platform(Core& core) : core_(core) {
     });
 
     graphics_.emplace(core_, window_);
+    core_.get_logger().info("initialized platform");
 }
 
 Platform::~Platform() {

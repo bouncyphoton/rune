@@ -1,14 +1,17 @@
 #ifndef RUNE_TEXTURE_H
 #define RUNE_TEXTURE_H
 
+#include "types.h"
+
 #include <vulkan/vulkan.h>
 
 namespace rune::gfx {
 
 class Texture {
   public:
-    Texture(VkImage image, VkImageView view, VkFormat format, VkImageLayout layout)
-        : image_(image), image_view_(view), format_(format), layout_(layout) {}
+    Texture(VkImage image, VkImageView view, VkFormat format, VkImageLayout layout, VkExtent3D extent)
+        : image_(image), image_view_(view), format_(format), layout_(layout), width_(extent.width),
+          height_(extent.height), depth_(extent.depth) {}
 
     [[nodiscard]] VkImage get_image() const {
         return image_;
@@ -26,11 +29,26 @@ class Texture {
         return layout_;
     }
 
+    [[nodiscard]] u32 get_width() const {
+        return width_;
+    }
+
+    [[nodiscard]] u32 get_height() const {
+        return height_;
+    }
+
+    [[nodiscard]] u32 get_depth() const {
+        return depth_;
+    }
+
   private:
     VkImage       image_;
     VkImageView   image_view_;
     VkFormat      format_;
     VkImageLayout layout_;
+    u32           width_;
+    u32           height_;
+    u32           depth_;
 };
 
 } // namespace rune::gfx
